@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>Fortnite Mobile Survival</title>
+    <title>Fortnite Mobile Survival (Updated)</title>
     <style>
         body { 
             margin: 0; 
@@ -120,7 +120,7 @@
         let playerHP = 100;
         const enemies = [];
         const bullets = [];
-        const walls = []; // 建築物
+        const walls = [];
 
         // UI要素
         const hpEl = document.getElementById('hp-bar');
@@ -146,7 +146,6 @@
         scene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
         dirLight.position.set(50, 100, 50);
-        dirLight.castShadow = false; // スマホ軽量化のため影なし
         scene.add(dirLight);
 
         // 地面
@@ -167,27 +166,25 @@
 
         // --- 3. 敵 (Enemy) システム ---
         const enemyGeo = new THREE.BoxGeometry(10, 20, 10);
-        const enemyMat = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // 赤色
+        const enemyMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
 
         function spawnEnemy() {
             if (isGameOver) return;
-            if (enemies.length >= 10) return; // 画面上の敵は最大10体まで（軽量化）
+            if (enemies.length >= 10) return;
 
             const enemy = new THREE.Mesh(enemyGeo, enemyMat);
             
-            // プレイヤーからある程度離れた位置にランダム出現
             const angle = Math.random() * Math.PI * 2;
-            const distance = 100 + Math.random() * 200; // 100〜300m離れた位置
+            const distance = 100 + Math.random() * 200;
             
             enemy.position.x = camera.position.x + Math.cos(angle) * distance;
             enemy.position.z = camera.position.z + Math.sin(angle) * distance;
-            enemy.position.y = 10; // 地面の上
+            enemy.position.y = 10;
 
             scene.add(enemy);
-            enemies.push({ mesh: enemy, speed: 20 + Math.random() * 15 }); // 速度はランダム
+            enemies.push({ mesh: enemy, speed: 20 + Math.random() * 15 });
         }
 
-        // 定期的に敵を出現させる (2秒ごと)
         setInterval(spawnEnemy, 2000);
 
         // --- 4. タッチ操作ロジック ---
@@ -248,7 +245,6 @@
             }
         });
 
-        // ボタンイベント
         document.getElementById('btn-jump').addEventListener('touchstart', (e) => {
             e.stopPropagation();
             if (!isGameOver && player.canJump) { player.velocity.y = 120; player.canJump = false; }
@@ -269,8 +265,8 @@
             const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
             const bullet = new THREE.Mesh(bulletGeo, bulletMat);
             
-            bullet.position.copy(camera.position); // カメラ位置から
-            bullet.position.y -= 1; // 視点より少し下から出す
+            bullet.position.copy(camera.position); 
+            bullet.position.y -= 1;
 
             const vector = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             bullet.userData = { velocity: vector.multiplyScalar(400) };
@@ -280,14 +276,21 @@
         }
 
         function buildWall() {
+            // 壁のジオメトリ
             const wallGeo = new THREE.BoxGeometry(20, 20, 2);
             const wallMat = new THREE.MeshBasicMaterial({ color: 0x8B4513 });
             const wall = new THREE.Mesh(wallGeo, wallMat);
+            
             const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             dir.y = 0; dir.normalize();
             const pos = camera.position.clone().add(dir.multiplyScalar(25));
+            
             wall.position.set(Math.round(pos.x / 20) * 20, 10, Math.round(pos.z / 20) * 20);
             wall.lookAt(wall.position.clone().add(dir));
+
+            // [変更点] 壁にHPを持たせる
+            wall.userData = { hp: 3 }; 
+            
             scene.add(wall);
             walls.push(wall);
         }
@@ -295,13 +298,17 @@
         // --- 5. ゲームループ ---
         let prevTime = performance.now();
         const tempVec = new THREE.Vector3();
+        // [変更点] 衝突判定用のボックスを再利用してパフォーマンス確保
+        const enemyBox = new THREE.Box3();
+        const wallBox = new THREE.Box3();
+        const checkEnemyBox = new THREE.Box3();
 
         function animate() {
-            if (isGameOver) return; // ゲームオーバーなら停止
+            if (isGameOver) return;
             requestAnimationFrame(animate);
 
             const time = performance.now();
-            const delta = Math.min((time - prevTime) / 1000, 0.1); // 最大デルタ制限
+            const delta = Math.min((time - prevTime) / 1000, 0.1);
             prevTime = time;
 
             // プレイヤー物理
@@ -332,23 +339,41 @@
                 const enemy = enemies[i];
                 const mesh = enemy.mesh;
 
-                // プレイヤーの方を向く
                 mesh.lookAt(camera.position.x, mesh.position.y, camera.position.z);
 
-                // プレイヤーへ移動
+                // 移動先を計算
                 const dirToPlayer = tempVec.subVectors(camera.position, mesh.position).normalize();
-                dirToPlayer.y = 0; // 空を飛ばないように
-                mesh.position.add(dirToPlayer.multiplyScalar(enemy.speed * delta));
+                dirToPlayer.y = 0;
+                
+                const moveAmount = enemy.speed * delta;
+                const proposedPosition = mesh.position.clone().add(dirToPlayer.clone().multiplyScalar(moveAmount));
+
+                // [変更点] 移動先に壁があるかチェック（壁貫通防止）
+                let blocked = false;
+                
+                // 敵の仮想バウンディングボックスを作成（少しサイズに余裕を持たせる）
+                checkEnemyBox.setFromCenterAndSize(proposedPosition, new THREE.Vector3(8, 18, 8));
+
+                for (const wall of walls) {
+                    wallBox.setFromObject(wall); // 壁のバウンディングボックス
+                    if (wallBox.intersectsBox(checkEnemyBox)) {
+                        blocked = true;
+                        break; // 一つでも当たれば移動不可
+                    }
+                }
+
+                if (!blocked) {
+                    mesh.position.copy(proposedPosition);
+                }
 
                 // プレイヤーとの衝突（攻撃）判定
                 const dist = mesh.position.distanceTo(camera.position);
                 if (dist < 5) {
-                    playerHP -= 1; // ダメージ
+                    playerHP -= 1;
                     hpEl.innerText = `HP: ${playerHP}`;
-                    hpEl.style.color = '#ff0000'; // ダメージ演出
+                    hpEl.style.color = '#ff0000';
                     setTimeout(() => hpEl.style.color = '#00ff00', 100);
 
-                    // 敵を少しノックバック
                     mesh.position.sub(dirToPlayer.multiplyScalar(10));
 
                     if (playerHP <= 0) {
@@ -366,19 +391,15 @@
 
                 let hit = false;
                 
-                // 敵との当たり判定
+                // 敵との判定
                 for (let j = enemies.length - 1; j >= 0; j--) {
                     const enemy = enemies[j];
-                    if (b.position.distanceTo(enemy.mesh.position) < 8) { // ヒット範囲
-                        // 敵削除
+                    if (b.position.distanceTo(enemy.mesh.position) < 8) {
                         scene.remove(enemy.mesh);
                         enemies.splice(j, 1);
-                        // 弾削除
                         scene.remove(b);
                         bullets.splice(i, 1);
                         hit = true;
-                        
-                        // スコア加算
                         score++;
                         scoreEl.innerText = `Kills: ${score}`;
                         break;
@@ -386,12 +407,28 @@
                 }
 
                 if (!hit) {
-                    // 壁との当たり判定（簡易）
-                    for(const w of walls) {
-                        if (b.position.distanceTo(w.position) < 10) {
+                    // [変更点] 壁との判定と破壊ロジック
+                    for (let k = walls.length - 1; k >= 0; k--) {
+                        const w = walls[k];
+                        // 判定を少し甘めに設定 (半径12程度)
+                        if (b.position.distanceTo(w.position) < 12) {
                             scene.remove(b);
                             bullets.splice(i, 1);
                             hit = true;
+
+                            // HPを減らす
+                            w.userData.hp -= 1;
+                            
+                            // ダメージ演出（色を暗くする）
+                            const baseColor = 0x8B4513;
+                            const darkenFactor = w.userData.hp / 3; 
+                            w.material.color.setHSL(0.08, 0.74, 0.2 + (0.2 * darkenFactor));
+
+                            // HPが0以下なら破壊
+                            if (w.userData.hp <= 0) {
+                                scene.remove(w);
+                                walls.splice(k, 1);
+                            }
                             break;
                         }
                     }
