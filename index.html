@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>Fortnite Mobile Survival & Memory Game</title>
+    <title>Fortnite Mobile Survival & Memory Game Fixed</title>
     <style>
         /* === 元のCSS (バトロワ用) === */
         body { 
@@ -13,7 +13,7 @@
         }
         #ui-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; z-index: 10; display: none; /* 初期は非表示 */
+            pointer-events: none; z-index: 10; display: none;
         }
         #crosshair {
             position: absolute; top: 50%; left: 50%; width: 16px; height: 16px;
@@ -32,7 +32,7 @@
             position: absolute; top: 50px; left: 20px;
             color: white; font-size: 14px; text-shadow: 2px 2px 0 #000; pointer-events: none;
         }
-        /* チャット (元のスタイル) */
+        /* チャット */
         #chat-container {
             position: absolute; top: 80px; right: 20px; width: 300px; max-width: 40%; pointer-events: auto;
         }
@@ -83,7 +83,6 @@
         }
 
         /* === 新規追加CSS (モード選択・神経衰弱用) === */
-        /* 共通全画面スタイル */
         .full-screen-menu {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.95); z-index: 100;
@@ -105,7 +104,6 @@
         .btn-blue { background: #2196f3; }
         .btn-red { background: #f44336; }
         
-        /* 部屋リスト */
         #lobby-ui { align-items: flex-start; padding-top: 60px; }
         #room-list-container {
             width: 90%; max-width: 600px; height: 60%; background: rgba(255,255,255,0.1);
@@ -115,11 +113,10 @@
             background: rgba(0,0,0,0.5); padding: 15px; margin-bottom: 10px; border-radius: 5px;
             display: flex; justify-content: space-between; align-items: center; border: 1px solid #555;
         }
-        /* 待機室 */
         #waiting-players { display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; margin: 20px; }
         .player-card { background: #333; padding: 15px; border-radius: 5px; border: 1px solid #4caf50; min-width: 80px; text-align: center;}
         
-        /* 神経衰弱ゲーム盤 */
+        /* 神経衰弱ゲーム盤 (バグ修正版) */
         #memory-game-board {
             display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 20px;
         }
@@ -128,9 +125,24 @@
             display: flex; justify-content: center; align-items: center;
             font-size: 24px; font-weight: bold; cursor: pointer; color: transparent;
             transition: transform 0.3s;
+            position: relative;
         }
-        .card.flipped { background: #fff; color: #000; transform: rotateY(180deg); }
-        .card.matched { background: #4caf50; color: #fff; opacity: 0.5; pointer-events: none; }
+        /* 数字が入るspanタグ用: 親が回転しても数字は正面を向くように逆回転させる */
+        .card span {
+            display: none; /* 通常は非表示 */
+            transform: rotateY(180deg); /* 鏡文字対策 */
+        }
+        .card.flipped { 
+            background: #fff; 
+            color: #000; 
+            transform: rotateY(180deg); /* カード自体をくるっと回す */
+        }
+        .card.flipped span {
+            display: block; /* めくったら表示 */
+        }
+        .card.matched { background: #4caf50; color: #fff; opacity: 0.5; pointer-events: none; transform: rotateY(180deg); }
+        .card.matched span { display: block; }
+
     </style>
 </head>
 <body>
@@ -231,28 +243,24 @@
     <script type="module">
         import * as THREE from 'three';
 
-        // --- Firebase初期化 (共通) ---
+        // --- Firebase初期化 ---
         const firebaseConfig = {
             apiKey: "AIzaSyBIB7NiNQBbrxNc0dsKtHmdGbieHrI26dk",
             databaseURL: "https://online-game-f5701-default-rtdb.asia-southeast1.firebasedatabase.app"
         };
-        // 既に初期化されていなければ初期化
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
         const db = firebase.database();
 
-        // --- 共通変数 ---
         let username = '';
         let myPlayerId = 'p_' + Math.random().toString(36).substr(2, 9);
         
-        // --- DOM要素 ---
         const usernameScreen = document.getElementById('username-screen');
         const usernameInput = document.getElementById('username-input');
         const usernameBtn = document.getElementById('username-btn');
         const modeScreen = document.getElementById('mode-select-screen');
         
-        // --- ログイン処理 ---
         usernameBtn.addEventListener('click', () => {
             const val = usernameInput.value.trim();
             if (!val) { alert('ユーザー名を入力してください'); return; }
@@ -262,7 +270,6 @@
             document.getElementById('welcome-msg').innerText = `Welcome, ${username}`;
         });
 
-        // --- モード選択処理 ---
         window.selectMode = function(mode) {
             modeScreen.classList.add('hidden');
             if (mode === 'BR') {
@@ -278,15 +285,14 @@
         }
 
         /* =========================================
-           ここから「神経衰弱 (Memory Game)」のロジック
+           ここから「神経衰弱 (Memory Game)」修正版
            ========================================= */
         let currentRoomId = null;
         let isHost = false;
+        let isProcessing = false; // ★連打防止用のフラグ
 
         function initMemoryLobby() {
             document.getElementById('lobby-screen').classList.remove('hidden');
-            
-            // 部屋一覧リスナー
             db.ref('memory_rooms').on('value', snap => {
                 const list = document.getElementById('room-list-container');
                 list.innerHTML = '';
@@ -346,7 +352,6 @@
             const screen = document.getElementById('waiting-room-screen');
             screen.classList.remove('hidden');
             
-            // 部屋監視
             db.ref(`memory_rooms/${currentRoomId}`).on('value', snap => {
                 const r = snap.val();
                 if (!r) { alert('Room closed.'); location.reload(); return; }
@@ -373,7 +378,6 @@
         }
 
         window.startGameMemoryHost = function() {
-            // カード生成 (簡易: 16枚ペア)
             const cards = [1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8]
                 .sort(() => Math.random() - 0.5);
             
@@ -392,7 +396,6 @@
             location.reload();
         };
 
-        // 神経衰弱本編
         function startMemoryGame(roomData) {
             const screen = document.getElementById('memory-game-screen');
             screen.classList.remove('hidden');
@@ -402,22 +405,29 @@
             roomData.board.forEach((num, idx) => {
                 const card = document.createElement('div');
                 card.className = 'card';
-                card.innerText = num; 
+                // ★修正: 数字をspanで囲む（CSSで逆回転させて鏡文字防止）
+                card.innerHTML = `<span>${num}</span>`; 
                 card.onclick = () => flipCard(idx, num);
                 card.id = `card-${idx}`;
                 board.appendChild(card);
             });
 
             // めくり同期監視
+            // child_added は過去の履歴も全て取得するので、ゲーム開始直後の同期もこれでOK
             db.ref(`memory_rooms/${currentRoomId}/moves`).on('child_added', snap => {
                 const m = snap.val();
                 const el = document.getElementById(`card-${m.index}`);
                 if (el) el.classList.add('flipped');
                 
-                // 2枚めくられたら判定（ホストがやる等の厳密制御は省略し、視覚効果のみ）
+                // 現在めくられている（まだマッチ確定していない）カードを探す
                 const flipped = document.querySelectorAll('.card.flipped:not(.matched)');
+                
+                // 2枚めくられたら判定
                 if (flipped.length === 2) {
+                    isProcessing = true; // ★ロック開始（誰も触れない）
+                    
                     setTimeout(() => {
+                        // 文字列として比較（念のため）
                         if (flipped[0].innerText === flipped[1].innerText) {
                             flipped[0].classList.add('matched');
                             flipped[1].classList.add('matched');
@@ -425,32 +435,35 @@
                             flipped[0].classList.remove('flipped');
                             flipped[1].classList.remove('flipped');
                         }
-                    }, 1000);
+                        isProcessing = false; // ★ロック解除
+                    }, 1000); // 1秒待機
                 }
             });
         }
 
         function flipCard(idx, num) {
-            // 自分のターン制御等は省略（自由参加型）
+            // ★バグ対策: 処理中、または既にめくられている、または既に2枚開いている場合は無視
+            if (isProcessing) return;
+            
             const el = document.getElementById(`card-${idx}`);
             if (el.classList.contains('flipped') || el.classList.contains('matched')) return;
             
-            // 既に2枚開いてるなら無視
-            const open = document.querySelectorAll('.card.flipped:not(.matched)');
-            if (open.length >= 2) return;
+            // ★バグ対策: 画面上で既に2枚開いていたら、通信する前に止める（連打防止）
+            const openCards = document.querySelectorAll('.card.flipped:not(.matched)');
+            if (openCards.length >= 2) return;
 
+            // サーバーに送信
             db.ref(`memory_rooms/${currentRoomId}/moves`).push({ index: idx, val: num });
         }
 
 
         /* =========================================
-           ここから「バトルロワイヤル (Battle Royale)」のロジック
-           (元のコードの機能を完全に復元)
+           ここから「バトルロワイヤル (Battle Royale)」
+           (機能変更なし)
            ========================================= */
         function startBattleRoyale() {
-            document.getElementById('ui-layer').style.display = 'block'; // UI表示
+            document.getElementById('ui-layer').style.display = 'block'; 
             
-            // 元の変数をスコープ内に定義
             const hpEl = document.getElementById('hp-bar');
             const scoreEl = document.getElementById('score-bar');
             const playersEl = document.getElementById('players-bar');
@@ -472,7 +485,6 @@
             const walls = [];
             const otherPlayers = {};
 
-            // --- Three.js Setup (元のコード) ---
             const scene = new THREE.Scene();
             scene.background = new THREE.Color(0x87CEEB);
             scene.fog = new THREE.Fog(0x87CEEB, 0, 500);
@@ -485,17 +497,14 @@
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             document.body.appendChild(renderer.domElement);
 
-            // ライト
             const ambientLight = new THREE.HemisphereLight(0xeeeeff, 0x555555, 0.6);
             scene.add(ambientLight);
             const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
             dirLight.position.set(50, 100, 50);
             scene.add(dirLight);
 
-            // 3D地形 (ぐにゃぐにゃ - 元のコードを復元)
             const floorGeo = new THREE.PlaneGeometry(2000, 2000, 100, 100);
             floorGeo.rotateX(-Math.PI / 2);
-            
             const positions = floorGeo.attributes.position;
             for (let i = 0; i < positions.count; i++) {
                 const x = positions.getX(i);
@@ -510,16 +519,13 @@
             const floor = new THREE.Mesh(floorGeo, floorMat);
             scene.add(floor);
 
-            // プレイヤー
             const player = { height: 10, speed: 80.0, velocity: new THREE.Vector3(), canJump: false };
             camera.position.set(0, player.height + 20, 0);
 
-            // --- Multiplayer Logic (元のコードを復元) ---
             myPlayerRef = db.ref('players/' + myPlayerId);
             connectionStatus.innerText = '🟢 Connected';
             connectionStatus.style.color = '#00ff00';
 
-            // 自分の位置送信
             setInterval(() => {
                 if (!isGameOver) {
                     myPlayerRef.set({
@@ -529,7 +535,6 @@
                 }
             }, 100);
 
-            // 他プレイヤー受信
             db.ref('players').on('value', (snapshot) => {
                 const players = snapshot.val();
                 const currentPlayerIds = new Set();
@@ -539,15 +544,13 @@
                         currentPlayerIds.add(id);
                         if (id === myPlayerId) continue;
                         const pData = players[id];
-                        if (Date.now() - pData.timestamp > 30000) continue; // タイムアウト
+                        if (Date.now() - pData.timestamp > 30000) continue; 
                         
                         if (!otherPlayers[id]) {
-                            // 新規プレイヤーメッシュ作成
                             const pGeo = new THREE.BoxGeometry(5, 18, 5);
                             const pMat = new THREE.MeshBasicMaterial({ color: 0x0000ff, transparent: true, opacity: 0.8 });
                             const pMesh = new THREE.Mesh(pGeo, pMat);
                             
-                            // 名前表示
                             const canvas = document.createElement('canvas');
                             canvas.width = 256; canvas.height = 64;
                             const ctx = canvas.getContext('2d');
@@ -564,14 +567,12 @@
                             otherPlayers[id] = pMesh;
                         }
                         
-                        // 位置更新 (補間)
                         const mesh = otherPlayers[id];
                         mesh.position.lerp(new THREE.Vector3(pData.x, pData.y - 9, pData.z), 0.3);
                         mesh.rotation.y = pData.rotY;
                         if (mesh.userData.nameTag) mesh.userData.nameTag.lookAt(camera.position);
                     }
                 }
-                // 切断プレイヤー削除
                 for (let id in otherPlayers) {
                     if (!currentPlayerIds.has(id)) {
                         scene.remove(otherPlayers[id]); delete otherPlayers[id];
@@ -580,7 +581,6 @@
                 playersEl.innerText = `Players: ${currentPlayerIds.size}`;
             });
 
-            // ゴミ掃除
             window.addEventListener('beforeunload', () => { if (myPlayerRef) myPlayerRef.remove(); });
             setInterval(() => {
                 db.ref('players').once('value', (s) => {
@@ -589,7 +589,6 @@
                 });
             }, 30000);
 
-            // --- Chat System (元のコードを復元) ---
             function sendMessage() {
                 const msg = chatInput.value.trim();
                 if (!msg) return;
@@ -615,7 +614,6 @@
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             });
 
-            // --- Enemy Logic ---
             const enemyGeo = new THREE.BoxGeometry(6, 12, 6);
             const enemyMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
             setInterval(() => {
@@ -628,7 +626,6 @@
                 enemies.push({ mesh: e, speed: 20 + Math.random() * 15 });
             }, 2000);
 
-            // --- Controls (Joystick & Buttons) ---
             const input = { moveX: 0, moveY: 0, touches: {} };
             const stickZone = document.getElementById('stick-zone');
             const stickKnob = document.getElementById('stick-knob');
@@ -683,7 +680,6 @@
                 }
             });
 
-            // Action Buttons
             document.getElementById('btn-jump').addEventListener('touchstart', (e) => {
                 e.stopPropagation(); if (!isGameOver && player.canJump) { player.velocity.y = 120; player.canJump = false; }
             });
@@ -702,7 +698,6 @@
                 const b = new THREE.Mesh(new THREE.SphereGeometry(0.8), new THREE.MeshBasicMaterial({ color: 0xffff00 }));
                 b.position.copy(camera.position); b.position.y -= 1;
                 let dir;
-                // Admin Aim Assist
                 if (adminMode && enemies.length > 0) {
                     let closest = null, minDst = Infinity;
                     enemies.forEach(e => { const d = b.position.distanceTo(e.mesh.position); if(d<minDst){minDst=d; closest=e;} });
@@ -724,7 +719,6 @@
                 w.userData = { hp: 3 }; scene.add(w); walls.push(w);
             }
 
-            // --- Game Loop (元のコード) ---
             let prevTime = performance.now();
             function animate() {
                 if (isGameOver || !gameStarted) return;
@@ -739,20 +733,17 @@
                 const move = fwd.multiplyScalar(input.moveY).add(rgt.multiplyScalar(input.moveX));
                 
                 player.velocity.x = move.x * player.speed; player.velocity.z = move.z * player.speed;
-                camera.position.add(player.velocity.clone().multiplyScalar(delta)); // Simple move
+                camera.position.add(player.velocity.clone().multiplyScalar(delta));
 
-                // 地面当たり判定 (簡易)
                 if (camera.position.y < player.height + 20) {
                     camera.position.y = player.height + 20; player.velocity.y = 0; player.canJump = true;
                 }
 
-                // 敵の移動
                 for (let i = enemies.length - 1; i >= 0; i--) {
                     const e = enemies[i];
                     e.mesh.lookAt(camera.position.x, e.mesh.position.y, camera.position.z);
                     const dir = camera.position.clone().sub(e.mesh.position).normalize(); dir.y=0;
                     
-                    // 壁判定
                     let blocked = false;
                     const nextPos = e.mesh.position.clone().add(dir.multiplyScalar(e.speed * delta));
                     for(let w of walls) { if(nextPos.distanceTo(w.position) < 10) blocked=true; }
@@ -762,7 +753,7 @@
                     if (e.mesh.position.distanceTo(camera.position) < 5) {
                         playerHP--; hpEl.innerText = `HP: ${playerHP}`;
                         hpEl.style.color='red'; setTimeout(()=>hpEl.style.color='#00ff00',100);
-                        e.mesh.position.sub(dir.multiplyScalar(10)); // Knockback
+                        e.mesh.position.sub(dir.multiplyScalar(10));
                         if (playerHP <= 0) {
                             isGameOver = true; gameOverEl.style.display = 'flex'; finalScoreEl.innerText = `Kills: ${score}`;
                             if (myPlayerRef) myPlayerRef.remove();
@@ -770,13 +761,11 @@
                     }
                 }
 
-                // 弾丸処理
                 for (let i = bullets.length - 1; i >= 0; i--) {
                     const b = bullets[i];
                     b.position.add(b.userData.velocity.clone().multiplyScalar(delta));
                     let hit = false;
                     
-                    // 対敵
                     for (let j = enemies.length - 1; j >= 0; j--) {
                         if (b.position.distanceTo(enemies[j].mesh.position) < 8) {
                             scene.remove(enemies[j].mesh); enemies.splice(j, 1);
@@ -784,7 +773,6 @@
                             score++; scoreEl.innerText = `Kills: ${score}`; break;
                         }
                     }
-                    // 対壁
                     if (!hit) {
                         for (let k = walls.length - 1; k >= 0; k--) {
                             if (b.position.distanceTo(walls[k].position) < 12) {
@@ -804,7 +792,6 @@
             }
             animate();
             
-            // リサイズ
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
