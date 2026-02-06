@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>Fortnite Mobile Survival</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            font-family: 'Arial', sans-serif; 
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            background: #000;
+        }
+        
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; width: 16px; height: 16px;
+            background: transparent; border: 2px solid rgba(255, 255, 255, 0.9); 
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 4px black;
+        }
+
+        /* ステータスバー (HP, Score) */
+        #status-bar {
+            position: absolute; top: 10px; left: 0; width: 100%;
+            display: flex; justify-content: space-between; padding: 0 20px; box-sizing: border-box;
+            font-weight: bold; font-size: 18px; color: white; text-shadow: 2px 2px 0 #000;
+        }
+        #hp-bar { color: #00ff00; }
+        #score-bar { color: #ffff00; }
+
+        /* ゲームオーバー画面 */
+        #game-over {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: none; /* 初期は非表示 */
+            flex-direction: column; justify-content: center; align-items: center;
+            color: white; z-index: 20; pointer-events: auto;
+        }
+        #restart-btn {
+            margin-top: 20px; padding: 15px 30px; font-size: 20px;
+            background: #ff4444; color: white; border: none; border-radius: 5px;
+        }
+
+        /* 操作ボタン */
+        .control-btn {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.4);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            color: white; border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            font-weight: bold; font-size: 14px;
+            pointer-events: auto; touch-action: manipulation;
+            transition: transform 0.1s;
+        }
+        .control-btn:active { background: rgba(255, 255, 255, 0.3); transform: scale(0.95); }
+
+        #btn-shoot { width: 75px; height: 75px; bottom: 80px; right: 30px; background: rgba(255, 50, 50, 0.6); }
+        #btn-jump  { width: 60px; height: 60px; bottom: 30px; right: 120px; }
+        #btn-build { width: 60px; height: 60px; bottom: 160px; right: 50px; background: rgba(139, 69, 19, 0.6); }
+
+        /* ジョイスティックガイド */
+        #stick-zone {
+            position: absolute; bottom: 50px; left: 50px;
+            width: 100px; height: 100px;
+            border: 2px dashed rgba(255,255,255,0.2); border-radius: 50%;
+            pointer-events: none; opacity: 0.3; transition: opacity 0.2s;
+        }
+        #stick-knob {
+            position: absolute; top: 50%; left: 50%;
+            width: 40px; height: 40px;
+            background: rgba(255,255,255,0.5); border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-over">
+        <h1>YOU DIED</h1>
+        <p id="final-score">Kills: 0</p>
+        <button id="restart-btn" onclick="location.reload()">RESTART</button>
+    </div>
+
+    <div id="ui-layer">
+        <div id="status-bar">
+            <div id="hp-bar">HP: 100</div>
+            <div id="score-bar">Kills: 0</div>
+        </div>
+        <div id="crosshair"></div>
+        <div id="stick-zone"><div id="stick-knob"></div></div>
+        <div id="btn-shoot" class="control-btn">FIRE</div>
+        <div id="btn-jump" class="control-btn">JUMP</div>
+        <div id="btn-build" class="control-btn">WALL</div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // --- ゲーム状態管理 ---
+        let isGameOver = false;
+        let score = 0;
+        let playerHP = 100;
+        const enemies = [];
+        const bullets = [];
+        const walls = []; // 建築物
+
+        // UI要素
+        const hpEl = document.getElementById('hp-bar');
+        const scoreEl = document.getElementById('score-bar');
+        const gameOverEl = document.getElementById('game-over');
+        const finalScoreEl = document.getElementById('final-score');
+
+        // --- 1. 基本セットアップ ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+        scene.fog = new THREE.Fog(0x87CEEB, 0, 500);
+
+        const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 800);
+        camera.rotation.order = 'YXZ'; 
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.body.appendChild(renderer.domElement);
+
+        // ライト
+        const ambientLight = new THREE.HemisphereLight(0xeeeeff, 0x555555, 0.6);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(50, 100, 50);
+        dirLight.castShadow = false; // スマホ軽量化のため影なし
+        scene.add(dirLight);
+
+        // 地面
+        const floorGeo = new THREE.PlaneGeometry(2000, 2000);
+        floorGeo.rotateX(-Math.PI / 2);
+        const floorMat = new THREE.MeshBasicMaterial({ color: 0x4caf50 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        scene.add(floor);
+
+        // --- 2. プレイヤー変数 ---
+        const player = {
+            height: 10,
+            speed: 80.0,
+            velocity: new THREE.Vector3(),
+            canJump: false
+        };
+        camera.position.set(0, player.height, 0);
+
+        // --- 3. 敵 (Enemy) システム ---
+        const enemyGeo = new THREE.BoxGeometry(10, 20, 10);
+        const enemyMat = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // 赤色
+
+        function spawnEnemy() {
+            if (isGameOver) return;
+            if (enemies.length >= 10) return; // 画面上の敵は最大10体まで（軽量化）
+
+            const enemy = new THREE.Mesh(enemyGeo, enemyMat);
+            
+            // プレイヤーからある程度離れた位置にランダム出現
+            const angle = Math.random() * Math.PI * 2;
+            const distance = 100 + Math.random() * 200; // 100〜300m離れた位置
+            
+            enemy.position.x = camera.position.x + Math.cos(angle) * distance;
+            enemy.position.z = camera.position.z + Math.sin(angle) * distance;
+            enemy.position.y = 10; // 地面の上
+
+            scene.add(enemy);
+            enemies.push({ mesh: enemy, speed: 20 + Math.random() * 15 }); // 速度はランダム
+        }
+
+        // 定期的に敵を出現させる (2秒ごと)
+        setInterval(spawnEnemy, 2000);
+
+        // --- 4. タッチ操作ロジック ---
+        const input = { moveX: 0, moveY: 0, touches: {} };
+        const stickZone = document.getElementById('stick-zone');
+        const stickKnob = document.getElementById('stick-knob');
+        const halfWidth = window.innerWidth / 2;
+
+        document.addEventListener('touchstart', (e) => {
+            if(isGameOver) return;
+            e.preventDefault();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                if (t.clientX < halfWidth) {
+                    input.touches[t.identifier] = { type: 'move', startX: t.clientX, startY: t.clientY };
+                    stickZone.style.left = (t.clientX - 50) + 'px';
+                    stickZone.style.top = (t.clientY - 50) + 'px';
+                    stickZone.style.opacity = '1';
+                } else {
+                    input.touches[t.identifier] = { type: 'look', lastX: t.clientX, lastY: t.clientY };
+                }
+            }
+        }, { passive: false });
+
+        document.addEventListener('touchmove', (e) => {
+            if(isGameOver) return;
+            e.preventDefault();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                const data = input.touches[t.identifier];
+                if (data && data.type === 'move') {
+                    const deltaX = t.clientX - data.startX;
+                    const deltaY = t.clientY - data.startY;
+                    const maxDist = 50;
+                    input.moveX = Math.max(-1, Math.min(1, deltaX / maxDist));
+                    input.moveY = Math.max(-1, Math.min(1, -deltaY / maxDist));
+                    stickKnob.style.transform = `translate(calc(-50% + ${input.moveX * 25}px), calc(-50% + ${-input.moveY * 25}px))`;
+                } else if (data && data.type === 'look') {
+                    const sensitivity = 0.005;
+                    camera.rotation.y -= (t.clientX - data.lastX) * sensitivity;
+                    camera.rotation.x -= (t.clientY - data.lastY) * sensitivity;
+                    camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+                    data.lastX = t.clientX; data.lastY = t.clientY;
+                }
+            }
+        }, { passive: false });
+
+        document.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                if (input.touches[t.identifier]?.type === 'move') {
+                    input.moveX = 0; input.moveY = 0;
+                    stickKnob.style.transform = `translate(-50%, -50%)`;
+                    stickZone.style.opacity = '0.3';
+                }
+                delete input.touches[t.identifier];
+            }
+        });
+
+        // ボタンイベント
+        document.getElementById('btn-jump').addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            if (!isGameOver && player.canJump) { player.velocity.y = 120; player.canJump = false; }
+        });
+
+        document.getElementById('btn-shoot').addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            if (!isGameOver) shoot();
+        });
+
+        document.getElementById('btn-build').addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            if (!isGameOver) buildWall();
+        });
+
+        function shoot() {
+            const bulletGeo = new THREE.SphereGeometry(0.8, 4, 4);
+            const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+            const bullet = new THREE.Mesh(bulletGeo, bulletMat);
+            
+            bullet.position.copy(camera.position); // カメラ位置から
+            bullet.position.y -= 1; // 視点より少し下から出す
+
+            const vector = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            bullet.userData = { velocity: vector.multiplyScalar(400) };
+            
+            scene.add(bullet);
+            bullets.push(bullet);
+        }
+
+        function buildWall() {
+            const wallGeo = new THREE.BoxGeometry(20, 20, 2);
+            const wallMat = new THREE.MeshBasicMaterial({ color: 0x8B4513 });
+            const wall = new THREE.Mesh(wallGeo, wallMat);
+            const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            dir.y = 0; dir.normalize();
+            const pos = camera.position.clone().add(dir.multiplyScalar(25));
+            wall.position.set(Math.round(pos.x / 20) * 20, 10, Math.round(pos.z / 20) * 20);
+            wall.lookAt(wall.position.clone().add(dir));
+            scene.add(wall);
+            walls.push(wall);
+        }
+
+        // --- 5. ゲームループ ---
+        let prevTime = performance.now();
+        const tempVec = new THREE.Vector3();
+
+        function animate() {
+            if (isGameOver) return; // ゲームオーバーなら停止
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+            const delta = Math.min((time - prevTime) / 1000, 0.1); // 最大デルタ制限
+            prevTime = time;
+
+            // プレイヤー物理
+            player.velocity.y -= 9.8 * 30.0 * delta;
+            
+            // プレイヤー移動
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            forward.y = 0; forward.normalize();
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+            right.y = 0; right.normalize();
+            
+            const moveVec = new THREE.Vector3().add(forward.multiplyScalar(input.moveY)).add(right.multiplyScalar(input.moveX));
+            player.velocity.x = moveVec.x * player.speed;
+            player.velocity.z = moveVec.z * player.speed;
+
+            camera.position.x += player.velocity.x * delta;
+            camera.position.z += player.velocity.z * delta;
+            camera.position.y += player.velocity.y * delta;
+
+            if (camera.position.y < player.height) {
+                camera.position.y = player.height;
+                player.velocity.y = 0;
+                player.canJump = true;
+            }
+
+            // --- 敵の更新 (AI) ---
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                const mesh = enemy.mesh;
+
+                // プレイヤーの方を向く
+                mesh.lookAt(camera.position.x, mesh.position.y, camera.position.z);
+
+                // プレイヤーへ移動
+                const dirToPlayer = tempVec.subVectors(camera.position, mesh.position).normalize();
+                dirToPlayer.y = 0; // 空を飛ばないように
+                mesh.position.add(dirToPlayer.multiplyScalar(enemy.speed * delta));
+
+                // プレイヤーとの衝突（攻撃）判定
+                const dist = mesh.position.distanceTo(camera.position);
+                if (dist < 5) {
+                    playerHP -= 1; // ダメージ
+                    hpEl.innerText = `HP: ${playerHP}`;
+                    hpEl.style.color = '#ff0000'; // ダメージ演出
+                    setTimeout(() => hpEl.style.color = '#00ff00', 100);
+
+                    // 敵を少しノックバック
+                    mesh.position.sub(dirToPlayer.multiplyScalar(10));
+
+                    if (playerHP <= 0) {
+                        isGameOver = true;
+                        gameOverEl.style.display = 'flex';
+                        finalScoreEl.innerText = `Kills: ${score}`;
+                    }
+                }
+            }
+
+            // --- 弾丸の更新と当たり判定 ---
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
+                b.position.add(b.userData.velocity.clone().multiplyScalar(delta));
+
+                let hit = false;
+                
+                // 敵との当たり判定
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const enemy = enemies[j];
+                    if (b.position.distanceTo(enemy.mesh.position) < 8) { // ヒット範囲
+                        // 敵削除
+                        scene.remove(enemy.mesh);
+                        enemies.splice(j, 1);
+                        // 弾削除
+                        scene.remove(b);
+                        bullets.splice(i, 1);
+                        hit = true;
+                        
+                        // スコア加算
+                        score++;
+                        scoreEl.innerText = `Kills: ${score}`;
+                        break;
+                    }
+                }
+
+                if (!hit) {
+                    // 壁との当たり判定（簡易）
+                    for(const w of walls) {
+                        if (b.position.distanceTo(w.position) < 10) {
+                            scene.remove(b);
+                            bullets.splice(i, 1);
+                            hit = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!hit && b.position.distanceTo(camera.position) > 400) {
+                    scene.remove(b);
+                    bullets.splice(i, 1);
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+    </script>
+</body>
+</html>
