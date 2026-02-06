@@ -61,17 +61,19 @@
             border: 2px solid #4caf50;
             border-radius: 5px;
             text-align: center;
+            pointer-events: auto;
         }
         #username-screen button {
             padding: 15px 50px; font-size: 22px; margin-top: 10px;
             background: #4caf50; color: white; border: none; border-radius: 5px;
             cursor: pointer;
+            pointer-events: auto;
         }
         #username-screen button:hover { background: #45a049; }
 
         /* チャット */
         #chat-container {
-            position: absolute; bottom: 200px; left: 20px;
+            position: absolute; top: 80px; right: 20px;
             width: 300px; max-width: 40%;
             pointer-events: auto;
         }
@@ -145,19 +147,19 @@
         #btn-jump  { width: 60px; height: 60px; bottom: 30px; right: 120px; }
         #btn-build { width: 60px; height: 60px; bottom: 160px; right: 50px; background: rgba(139, 69, 19, 0.6); }
 
-        /* ジョイスティックガイド - Robloxサイズ */
+        /* ジョイスティックガイド - 小さいサイズ */
         #stick-zone {
             position: absolute; bottom: 30px; left: 30px;
-            width: 150px; height: 150px;
-            border: 3px dashed rgba(255,255,255,0.3); border-radius: 50%;
+            width: 100px; height: 100px;
+            border: 2px dashed rgba(255,255,255,0.3); border-radius: 50%;
             pointer-events: none; opacity: 0.4; transition: opacity 0.2s;
         }
         #stick-knob {
             position: absolute; top: 50%; left: 50%;
-            width: 60px; height: 60px;
+            width: 40px; height: 40px;
             background: rgba(255,255,255,0.6); border-radius: 50%;
             transform: translate(-50%, -50%);
-            border: 3px solid rgba(255,255,255,0.8);
+            border: 2px solid rgba(255,255,255,0.8);
         }
     </style>
 </head>
@@ -536,22 +538,22 @@
 
         setInterval(spawnEnemy, 2000);
 
-        // --- 4. タッチ操作ロジック (Robloxサイズ) ---
+        // --- 4. タッチ操作ロジック (小さいジョイスティック) ---
         const input = { moveX: 0, moveY: 0, touches: {} };
         const stickZone = document.getElementById('stick-zone');
         const stickKnob = document.getElementById('stick-knob');
-        const joystickSize = 200; // Robloxサイズ
+        const joystickArea = 150; // ジョイスティック判定範囲
 
         document.addEventListener('touchstart', (e) => {
             if(isGameOver || !gameStarted) return;
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
-                // 左半分の大きな範囲でジョイスティック
-                if (t.clientX < window.innerWidth / 2) {
+                // 左下の小さいエリアだけジョイスティック
+                if (t.clientX < joystickArea && t.clientY > window.innerHeight - joystickArea) {
                     input.touches[t.identifier] = { type: 'move', startX: t.clientX, startY: t.clientY };
-                    stickZone.style.left = (t.clientX - 75) + 'px';
-                    stickZone.style.top = (t.clientY - 75) + 'px';
+                    stickZone.style.left = (t.clientX - 50) + 'px';
+                    stickZone.style.top = (t.clientY - 50) + 'px';
                     stickZone.style.opacity = '0.8';
                 } else {
                     input.touches[t.identifier] = { type: 'look', lastX: t.clientX, lastY: t.clientY };
@@ -568,10 +570,10 @@
                 if (data && data.type === 'move') {
                     const deltaX = t.clientX - data.startX;
                     const deltaY = t.clientY - data.startY;
-                    const maxDist = 75; // Roblox風の大きな範囲
+                    const maxDist = 50; // 小さい範囲
                     input.moveX = Math.max(-1, Math.min(1, deltaX / maxDist));
                     input.moveY = Math.max(-1, Math.min(1, -deltaY / maxDist));
-                    stickKnob.style.transform = `translate(calc(-50% + ${input.moveX * 40}px), calc(-50% + ${-input.moveY * 40}px))`;
+                    stickKnob.style.transform = `translate(calc(-50% + ${input.moveX * 25}px), calc(-50% + ${-input.moveY * 25}px))`;
                 } else if (data && data.type === 'look') {
                     const sensitivity = 0.005;
                     camera.rotation.y -= (t.clientX - data.lastX) * sensitivity;
