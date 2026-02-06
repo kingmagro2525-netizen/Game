@@ -52,7 +52,15 @@
             background: rgba(0,0,0,0.9);
             display: flex;
             flex-direction: column; justify-content: center; align-items: center;
-            color: white; z-index: 30; pointer-events: auto;
+            color: white; z-index: 30; 
+            pointer-events: auto !important;
+            touch-action: auto !important;
+        }
+        #username-screen * {
+            pointer-events: auto !important;
+            user-select: auto !important;
+            -webkit-user-select: auto !important;
+            touch-action: auto !important;
         }
         #username-screen h1 { margin-bottom: 40px; font-size: 32px; }
         #username-screen input {
