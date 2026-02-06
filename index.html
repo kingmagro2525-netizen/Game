@@ -46,28 +46,6 @@
             pointer-events: none;
         }
 
-        /* 初期設定画面 */
-        #setup-screen {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9);
-            display: flex;
-            flex-direction: column; justify-content: center; align-items: center;
-            color: white; z-index: 30; pointer-events: auto;
-        }
-        #setup-screen h1 { margin-bottom: 40px; font-size: 32px; }
-        #setup-screen input {
-            padding: 15px; font-size: 16px; margin: 10px;
-            width: 350px; max-width: 80%;
-            border: 2px solid #4caf50;
-            border-radius: 5px;
-        }
-        #setup-screen button {
-            padding: 15px 50px; font-size: 22px; margin-top: 30px;
-            background: #4caf50; color: white; border: none; border-radius: 5px;
-            cursor: pointer;
-        }
-        #setup-screen button:hover { background: #45a049; }
-
         /* ゲームオーバー画面 */
         #game-over {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -115,16 +93,6 @@
 </head>
 <body>
 
-    <!-- 初期設定画面 -->
-    <div id="setup-screen">
-        <h1>🎮 MULTIPLAYER</h1>
-        <div>
-            <input type="text" id="firebase-key" placeholder="API Key" value="AIzaSyBIB7NiNQBbrxNc0dsKtHmdGbieHrI26dk" />
-            <input type="text" id="project-id" placeholder="Project ID" value="online-game-f5701" />
-        </div>
-        <button id="start-btn">START GAME</button>
-    </div>
-
     <div id="game-over">
         <h1>YOU DIED</h1>
         <p id="final-score">Kills: 0</p>
@@ -161,10 +129,6 @@
         import * as THREE from 'three';
 
         // --- UI要素 ---
-        const setupScreen = document.getElementById('setup-screen');
-        const startBtn = document.getElementById('start-btn');
-        const firebaseKeyInput = document.getElementById('firebase-key');
-        const projectIdInput = document.getElementById('project-id');
         const connectionStatus = document.getElementById('connection-status');
         const hpEl = document.getElementById('hp-bar');
         const scoreEl = document.getElementById('score-bar');
@@ -175,7 +139,6 @@
         let db = null;
         let playerId = null;
         let myPlayerRef = null;
-        let gameStarted = false;
 
         // --- ゲーム状態管理 ---
         let isGameOver = false;
@@ -222,49 +185,38 @@
         };
         camera.position.set(0, player.height, 0);
 
-        // --- Firebase初期化 ---
-        startBtn.addEventListener('click', () => {
-            const apiKey = firebaseKeyInput.value.trim();
-            const projectId = projectIdInput.value.trim();
+        // --- Firebase自動初期化 ---
+        const apiKey = "AIzaSyBIB7NiNQBbrxNc0dsKtHmdGbieHrI26dk";
+        const projectId = "online-game-f5701";
+        const databaseURL = `https://${projectId}-default-rtdb.asia-southeast1.firebasedatabase.app`;
 
-            if (!apiKey || !projectId) {
-                alert('API KeyとProject IDを両方入力してください');
-                return;
-            }
+        try {
+            const firebaseConfig = {
+                apiKey: apiKey,
+                databaseURL: databaseURL
+            };
 
-            const databaseURL = `https://${projectId}-default-rtdb.asia-southeast1.firebasedatabase.app`;
-
-            try {
-                const firebaseConfig = {
-                    apiKey: apiKey,
-                    databaseURL: databaseURL
-                };
-
-                firebase.initializeApp(firebaseConfig);
-                db = firebase.database();
-                playerId = 'player_' + Math.random().toString(36).substr(2, 9);
-                
-                setupScreen.style.display = 'none';
-                gameStarted = true;
-                
-                initializeMultiplayer();
-                animate();
-                
-                connectionStatus.innerText = '🟢 Connected';
-                connectionStatus.style.color = '#00ff00';
-                
-            } catch (error) {
-                alert('Firebase接続エラー:\n\n' + error.message);
-                console.error(error);
-            }
-        });
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.database();
+            playerId = 'player_' + Math.random().toString(36).substr(2, 9);
+            
+            initializeMultiplayer();
+            
+            connectionStatus.innerText = '🟢 Connected';
+            connectionStatus.style.color = '#00ff00';
+            
+        } catch (error) {
+            connectionStatus.innerText = '🔴 Connection Error';
+            connectionStatus.style.color = '#ff0000';
+            console.error('Firebase Error:', error);
+        }
 
         // --- マルチプレイヤー初期化 ---
         function initializeMultiplayer() {
             myPlayerRef = db.ref('players/' + playerId);
             
             setInterval(() => {
-                if (!isGameOver && gameStarted) {
+                if (!isGameOver) {
                     myPlayerRef.set({
                         x: camera.position.x,
                         y: camera.position.y,
@@ -353,7 +305,7 @@
         const enemyMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
 
         function spawnEnemy() {
-            if (isGameOver || !gameStarted) return;
+            if (isGameOver) return;
             if (enemies.length >= 10) return;
 
             const enemy = new THREE.Mesh(enemyGeo, enemyMat);
@@ -378,7 +330,7 @@
         const halfWidth = window.innerWidth / 2;
 
         document.addEventListener('touchstart', (e) => {
-            if(isGameOver || !gameStarted) return;
+            if(isGameOver) return;
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
@@ -394,7 +346,7 @@
         }, { passive: false });
 
         document.addEventListener('touchmove', (e) => {
-            if(isGameOver || !gameStarted) return;
+            if(isGameOver) return;
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
@@ -431,7 +383,7 @@
 
         document.getElementById('btn-jump').addEventListener('touchstart', (e) => {
             e.stopPropagation();
-            if (!isGameOver && gameStarted && player.canJump) { 
+            if (!isGameOver && player.canJump) { 
                 player.velocity.y = 120; 
                 player.canJump = false; 
             }
@@ -439,12 +391,12 @@
 
         document.getElementById('btn-shoot').addEventListener('touchstart', (e) => {
             e.stopPropagation();
-            if (!isGameOver && gameStarted) shoot();
+            if (!isGameOver) shoot();
         });
 
         document.getElementById('btn-build').addEventListener('touchstart', (e) => {
             e.stopPropagation();
-            if (!isGameOver && gameStarted) buildWall();
+            if (!isGameOver) buildWall();
         });
 
         function shoot() {
@@ -487,7 +439,7 @@
         const checkEnemyBox = new THREE.Box3();
 
         function animate() {
-            if (isGameOver || !gameStarted) return;
+            if (isGameOver) return;
             requestAnimationFrame(animate);
 
             const time = performance.now();
@@ -609,6 +561,8 @@
 
             renderer.render(scene, camera);
         }
+
+        animate();
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
