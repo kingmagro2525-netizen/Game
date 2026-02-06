@@ -244,6 +244,7 @@
         let myPlayerRef = null;
         let username = '';
         let gameStarted = false;
+        let adminMode = false; // 隠しコマンド用
 
         // --- ゲーム状態管理 ---
         let isGameOver = false;
@@ -479,6 +480,19 @@
                 const message = chatInput.value.trim();
                 if (!message) return;
                 
+                // 隠しコマンドチェック
+                if (message === ';admin') {
+                    adminMode = !adminMode;
+                    chatInput.value = '';
+                    // ローカルフィードバック（チャットに表示されない）
+                    const messageEl = document.createElement('div');
+                    messageEl.className = 'chat-message';
+                    messageEl.innerHTML = `<span style="color: #ff0000;">[SYSTEM] Admin mode ${adminMode ? 'ON' : 'OFF'}</span>`;
+                    chatMessages.appendChild(messageEl);
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                    return; // Firebaseに送信しない
+                }
+                
                 db.ref('chat').push({
                     username: username,
                     message: message,
@@ -524,7 +538,7 @@
         }
 
         // --- 3. 敵 (Enemy) システム ---
-        const enemyGeo = new THREE.BoxGeometry(10, 20, 10);
+        const enemyGeo = new THREE.BoxGeometry(6, 12, 6);
         const enemyMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
 
         function spawnEnemy() {
@@ -610,6 +624,8 @@
             }
         });
 
+        let shootInterval = null;
+        
         document.getElementById('btn-jump').addEventListener('touchstart', (e) => {
             e.stopPropagation();
             if (!isGameOver && player.canJump) { 
@@ -620,7 +636,24 @@
 
         document.getElementById('btn-shoot').addEventListener('touchstart', (e) => {
             e.stopPropagation();
-            if (!isGameOver) shoot();
+            if (!isGameOver) {
+                shoot(); // 最初の一発
+                // アドミンモードの時のみ長押しで連射
+                if (adminMode) {
+                    shootInterval = setInterval(() => {
+                        if (!isGameOver) shoot();
+                    }, 150); // 0.15秒ごとに連射
+                }
+            }
+        });
+        
+        document.getElementById('btn-shoot').addEventListener('touchend', (e) => {
+            e.stopPropagation();
+            // 連射停止
+            if (shootInterval) {
+                clearInterval(shootInterval);
+                shootInterval = null;
+            }
         });
 
         document.getElementById('btn-build').addEventListener('touchstart', (e) => {
@@ -636,23 +669,52 @@
             bullet.position.copy(camera.position); 
             bullet.position.y -= 1;
 
-            const vector = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            bullet.userData = { velocity: vector.multiplyScalar(400) };
+            let direction;
+            
+            // Admin mode: オートエイム
+            if (adminMode && enemies.length > 0) {
+                // 最も近い敵を探す
+                let closestEnemy = null;
+                let minDistance = Infinity;
+                
+                for (const enemy of enemies) {
+                    const dist = bullet.position.distanceTo(enemy.mesh.position);
+                    if (dist < minDistance) {
+                        minDistance = dist;
+                        closestEnemy = enemy;
+                    }
+                }
+                
+                if (closestEnemy) {
+                    // 敵に向かう方向ベクトル
+                    direction = new THREE.Vector3()
+                        .subVectors(closestEnemy.mesh.position, bullet.position)
+                        .normalize();
+                } else {
+                    // 敵がいなければ通常射撃
+                    direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                }
+            } else {
+                // 通常モード
+                direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            }
+            
+            bullet.userData = { velocity: direction.multiplyScalar(400) };
             
             scene.add(bullet);
             bullets.push(bullet);
         }
 
         function buildWall() {
-            const wallGeo = new THREE.BoxGeometry(20, 20, 2);
+            const wallGeo = new THREE.BoxGeometry(15, 15, 2);
             const wallMat = new THREE.MeshBasicMaterial({ color: 0x8B4513 });
             const wall = new THREE.Mesh(wallGeo, wallMat);
             
             const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             dir.y = 0; dir.normalize();
-            const pos = camera.position.clone().add(dir.multiplyScalar(25));
+            const pos = camera.position.clone().add(dir.multiplyScalar(20));
             
-            wall.position.set(Math.round(pos.x / 20) * 20, 10, Math.round(pos.z / 20) * 20);
+            wall.position.set(Math.round(pos.x / 15) * 15, 7.5, Math.round(pos.z / 15) * 15);
             wall.lookAt(wall.position.clone().add(dir));
             wall.userData = { hp: 3 }; 
             
