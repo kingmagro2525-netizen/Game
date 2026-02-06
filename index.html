@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>Fortnite Mobile Survival (Updated)</title>
+    <title>Fortnite Mobile Survival - Online Multiplayer</title>
     <style>
         body { 
             margin: 0; 
@@ -29,7 +29,7 @@
             box-shadow: 0 0 4px black;
         }
 
-        /* ステータスバー (HP, Score) */
+        /* ステータスバー (HP, Score, Players) */
         #status-bar {
             position: absolute; top: 10px; left: 0; width: 100%;
             display: flex; justify-content: space-between; padding: 0 20px; box-sizing: border-box;
@@ -37,12 +37,57 @@
         }
         #hp-bar { color: #00ff00; }
         #score-bar { color: #ffff00; }
+        #players-bar { color: #00ffff; }
+
+        /* 接続ステータス */
+        #connection-status {
+            position: absolute; top: 50px; left: 20px;
+            color: white; font-size: 14px; text-shadow: 2px 2px 0 #000;
+            pointer-events: none;
+        }
+
+        /* 初期設定画面 */
+        #setup-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column; justify-content: center; align-items: center;
+            color: white; z-index: 30; pointer-events: auto;
+        }
+        #setup-screen h1 { margin-bottom: 30px; font-size: 28px; }
+        #setup-screen input {
+            padding: 15px; font-size: 16px; margin: 10px;
+            width: 350px; max-width: 80%;
+            border: 2px solid #4caf50;
+            border-radius: 5px;
+        }
+        #setup-screen button {
+            padding: 15px 40px; font-size: 20px; margin: 20px 10px;
+            background: #4caf50; color: white; border: none; border-radius: 5px;
+            cursor: pointer;
+        }
+        #setup-screen button:hover { background: #45a049; }
+        .setup-info {
+            font-size: 13px; color: #aaa; margin-top: 20px; max-width: 450px;
+            text-align: center; padding: 0 20px; line-height: 1.6;
+        }
+        .step {
+            background: rgba(76, 175, 80, 0.1);
+            padding: 15px;
+            margin: 10px 0;
+            border-left: 3px solid #4caf50;
+            text-align: left;
+            max-width: 450px;
+        }
+        .step strong { color: #4caf50; }
+        a { color: #4caf50; text-decoration: none; }
+        a:hover { text-decoration: underline; }
 
         /* ゲームオーバー画面 */
         #game-over {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.8);
-            display: none; /* 初期は非表示 */
+            display: none;
             flex-direction: column; justify-content: center; align-items: center;
             color: white; z-index: 20; pointer-events: auto;
         }
@@ -85,6 +130,36 @@
 </head>
 <body>
 
+    <!-- 初期設定画面 -->
+    <div id="setup-screen">
+        <h1>🎮 Fortnite Mobile Multiplayer</h1>
+        
+        <div class="step">
+            <strong>ステップ1:</strong> Firebase Consoleを開く<br>
+            <a href="https://console.firebase.google.com/" target="_blank">https://console.firebase.google.com/</a>
+        </div>
+        
+        <div class="step">
+            <strong>ステップ2:</strong> 左メニューから「Realtime Database」をクリック<br>
+            → 「データベースを作成」→「テストモードで開始」
+        </div>
+        
+        <div class="step">
+            <strong>ステップ3:</strong> 以下の情報をコピペ
+        </div>
+        
+        <div>
+            <input type="text" id="firebase-key" placeholder="API Key (AIzaSy...)" value="AIzaSyBIB7NiNQBbrxNc0dsKtHmdGbieHrI26dk" />
+            <input type="text" id="project-id" placeholder="Project ID (例: online-game-f5701)" value="online-game-f5701" />
+        </div>
+        <button id="start-btn">🚀 START GAME</button>
+        
+        <div class="setup-info">
+            <p><strong>Project ID</strong>は Firebase Console のプロジェクト名の下に表示されています</p>
+            <p><strong>API Key</strong>は設定 → アプリ設定から確認できます</p>
+        </div>
+    </div>
+
     <div id="game-over">
         <h1>YOU DIED</h1>
         <p id="final-score">Kills: 0</p>
@@ -95,13 +170,19 @@
         <div id="status-bar">
             <div id="hp-bar">HP: 100</div>
             <div id="score-bar">Kills: 0</div>
+            <div id="players-bar">Players: 1</div>
         </div>
+        <div id="connection-status">🔴 Connecting...</div>
         <div id="crosshair"></div>
         <div id="stick-zone"><div id="stick-knob"></div></div>
         <div id="btn-shoot" class="control-btn">FIRE</div>
         <div id="btn-jump" class="control-btn">JUMP</div>
         <div id="btn-build" class="control-btn">WALL</div>
     </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
     <script type="importmap">
         {
@@ -114,6 +195,23 @@
     <script type="module">
         import * as THREE from 'three';
 
+        // --- UI要素 ---
+        const setupScreen = document.getElementById('setup-screen');
+        const startBtn = document.getElementById('start-btn');
+        const firebaseKeyInput = document.getElementById('firebase-key');
+        const projectIdInput = document.getElementById('project-id');
+        const connectionStatus = document.getElementById('connection-status');
+        const hpEl = document.getElementById('hp-bar');
+        const scoreEl = document.getElementById('score-bar');
+        const playersEl = document.getElementById('players-bar');
+        const gameOverEl = document.getElementById('game-over');
+        const finalScoreEl = document.getElementById('final-score');
+
+        let db = null;
+        let playerId = null;
+        let myPlayerRef = null;
+        let gameStarted = false;
+
         // --- ゲーム状態管理 ---
         let isGameOver = false;
         let score = 0;
@@ -121,12 +219,7 @@
         const enemies = [];
         const bullets = [];
         const walls = [];
-
-        // UI要素
-        const hpEl = document.getElementById('hp-bar');
-        const scoreEl = document.getElementById('score-bar');
-        const gameOverEl = document.getElementById('game-over');
-        const finalScoreEl = document.getElementById('final-score');
+        const otherPlayers = {};
 
         // --- 1. 基本セットアップ ---
         const scene = new THREE.Scene();
@@ -164,12 +257,141 @@
         };
         camera.position.set(0, player.height, 0);
 
+        // --- Firebase初期化 ---
+        startBtn.addEventListener('click', () => {
+            const apiKey = firebaseKeyInput.value.trim();
+            const projectId = projectIdInput.value.trim();
+
+            if (!apiKey || !projectId) {
+                alert('API KeyとProject IDを両方入力してください');
+                return;
+            }
+
+            // databaseURLを自動生成
+            const databaseURL = `https://${projectId}-default-rtdb.firebaseio.com`;
+
+            try {
+                const firebaseConfig = {
+                    apiKey: apiKey,
+                    databaseURL: databaseURL
+                };
+
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.database();
+                playerId = 'player_' + Math.random().toString(36).substr(2, 9);
+                
+                setupScreen.style.display = 'none';
+                gameStarted = true;
+                
+                initializeMultiplayer();
+                animate();
+                
+                connectionStatus.innerText = '🟢 Connected';
+                connectionStatus.style.color = '#00ff00';
+                
+            } catch (error) {
+                alert('Firebase接続エラー:\n\n' + error.message + '\n\nRealtime Databaseを有効にしましたか？');
+                console.error(error);
+            }
+        });
+
+        // --- マルチプレイヤー初期化 ---
+        function initializeMultiplayer() {
+            myPlayerRef = db.ref('players/' + playerId);
+            
+            // 自分の位置を定期送信
+            setInterval(() => {
+                if (!isGameOver && gameStarted) {
+                    myPlayerRef.set({
+                        x: camera.position.x,
+                        y: camera.position.y,
+                        z: camera.position.z,
+                        rotY: camera.rotation.y,
+                        hp: playerHP,
+                        timestamp: Date.now()
+                    });
+                }
+            }, 100);
+
+            // 他プレイヤーの情報を受信
+            db.ref('players').on('value', (snapshot) => {
+                const players = snapshot.val();
+                const currentPlayerIds = new Set();
+                
+                if (players) {
+                    for (let id in players) {
+                        currentPlayerIds.add(id);
+                        
+                        if (id === playerId) continue;
+                        
+                        const playerData = players[id];
+                        
+                        if (Date.now() - playerData.timestamp > 30000) continue;
+                        
+                        if (!otherPlayers[id]) {
+                            const playerGeo = new THREE.BoxGeometry(5, 18, 5);
+                            const playerMat = new THREE.MeshBasicMaterial({ 
+                                color: 0x0000ff,
+                                transparent: true,
+                                opacity: 0.8
+                            });
+                            const playerMesh = new THREE.Mesh(playerGeo, playerMat);
+                            
+                            const nameGeo = new THREE.BoxGeometry(8, 2, 0.5);
+                            const nameMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                            const nameTag = new THREE.Mesh(nameGeo, nameMat);
+                            nameTag.position.y = 12;
+                            playerMesh.add(nameTag);
+                            
+                            scene.add(playerMesh);
+                            otherPlayers[id] = playerMesh;
+                        }
+                        
+                        const mesh = otherPlayers[id];
+                        mesh.position.lerp(
+                            new THREE.Vector3(playerData.x, playerData.y - 9, playerData.z),
+                            0.3
+                        );
+                        mesh.rotation.y = playerData.rotY;
+                    }
+                }
+                
+                for (let id in otherPlayers) {
+                    if (!currentPlayerIds.has(id)) {
+                        scene.remove(otherPlayers[id]);
+                        delete otherPlayers[id];
+                    }
+                }
+                
+                playersEl.innerText = `Players: ${currentPlayerIds.size}`;
+            });
+
+            window.addEventListener('beforeunload', () => {
+                if (myPlayerRef) {
+                    myPlayerRef.remove();
+                }
+            });
+
+            setInterval(() => {
+                db.ref('players').once('value', (snapshot) => {
+                    const players = snapshot.val();
+                    if (players) {
+                        for (let id in players) {
+                            if (Date.now() - players[id].timestamp > 60000) {
+                                db.ref('players/' + id).remove();
+                            }
+                        }
+                    }
+                });
+            }, 30000);
+        }
+
         // --- 3. 敵 (Enemy) システム ---
         const enemyGeo = new THREE.BoxGeometry(10, 20, 10);
         const enemyMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
 
         function spawnEnemy() {
-            if (isGameOver) return;
+            if (isGameOver || !gameStarted) return;
             if (enemies.length >= 10) return;
 
             const enemy = new THREE.Mesh(enemyGeo, enemyMat);
@@ -194,7 +416,7 @@
         const halfWidth = window.innerWidth / 2;
 
         document.addEventListener('touchstart', (e) => {
-            if(isGameOver) return;
+            if(isGameOver || !gameStarted) return;
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
@@ -210,7 +432,7 @@
         }, { passive: false });
 
         document.addEventListener('touchmove', (e) => {
-            if(isGameOver) return;
+            if(isGameOver || !gameStarted) return;
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
@@ -247,17 +469,20 @@
 
         document.getElementById('btn-jump').addEventListener('touchstart', (e) => {
             e.stopPropagation();
-            if (!isGameOver && player.canJump) { player.velocity.y = 120; player.canJump = false; }
+            if (!isGameOver && gameStarted && player.canJump) { 
+                player.velocity.y = 120; 
+                player.canJump = false; 
+            }
         });
 
         document.getElementById('btn-shoot').addEventListener('touchstart', (e) => {
             e.stopPropagation();
-            if (!isGameOver) shoot();
+            if (!isGameOver && gameStarted) shoot();
         });
 
         document.getElementById('btn-build').addEventListener('touchstart', (e) => {
             e.stopPropagation();
-            if (!isGameOver) buildWall();
+            if (!isGameOver && gameStarted) buildWall();
         });
 
         function shoot() {
@@ -276,7 +501,6 @@
         }
 
         function buildWall() {
-            // 壁のジオメトリ
             const wallGeo = new THREE.BoxGeometry(20, 20, 2);
             const wallMat = new THREE.MeshBasicMaterial({ color: 0x8B4513 });
             const wall = new THREE.Mesh(wallGeo, wallMat);
@@ -287,8 +511,6 @@
             
             wall.position.set(Math.round(pos.x / 20) * 20, 10, Math.round(pos.z / 20) * 20);
             wall.lookAt(wall.position.clone().add(dir));
-
-            // [変更点] 壁にHPを持たせる
             wall.userData = { hp: 3 }; 
             
             scene.add(wall);
@@ -298,23 +520,20 @@
         // --- 5. ゲームループ ---
         let prevTime = performance.now();
         const tempVec = new THREE.Vector3();
-        // [変更点] 衝突判定用のボックスを再利用してパフォーマンス確保
         const enemyBox = new THREE.Box3();
         const wallBox = new THREE.Box3();
         const checkEnemyBox = new THREE.Box3();
 
         function animate() {
-            if (isGameOver) return;
+            if (isGameOver || !gameStarted) return;
             requestAnimationFrame(animate);
 
             const time = performance.now();
             const delta = Math.min((time - prevTime) / 1000, 0.1);
             prevTime = time;
 
-            // プレイヤー物理
             player.velocity.y -= 9.8 * 30.0 * delta;
             
-            // プレイヤー移動
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             forward.y = 0; forward.normalize();
             const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
@@ -334,31 +553,26 @@
                 player.canJump = true;
             }
 
-            // --- 敵の更新 (AI) ---
             for (let i = enemies.length - 1; i >= 0; i--) {
                 const enemy = enemies[i];
                 const mesh = enemy.mesh;
 
                 mesh.lookAt(camera.position.x, mesh.position.y, camera.position.z);
 
-                // 移動先を計算
                 const dirToPlayer = tempVec.subVectors(camera.position, mesh.position).normalize();
                 dirToPlayer.y = 0;
                 
                 const moveAmount = enemy.speed * delta;
                 const proposedPosition = mesh.position.clone().add(dirToPlayer.clone().multiplyScalar(moveAmount));
 
-                // [変更点] 移動先に壁があるかチェック（壁貫通防止）
                 let blocked = false;
-                
-                // 敵の仮想バウンディングボックスを作成（少しサイズに余裕を持たせる）
                 checkEnemyBox.setFromCenterAndSize(proposedPosition, new THREE.Vector3(8, 18, 8));
 
                 for (const wall of walls) {
-                    wallBox.setFromObject(wall); // 壁のバウンディングボックス
+                    wallBox.setFromObject(wall);
                     if (wallBox.intersectsBox(checkEnemyBox)) {
                         blocked = true;
-                        break; // 一つでも当たれば移動不可
+                        break;
                     }
                 }
 
@@ -366,7 +580,6 @@
                     mesh.position.copy(proposedPosition);
                 }
 
-                // プレイヤーとの衝突（攻撃）判定
                 const dist = mesh.position.distanceTo(camera.position);
                 if (dist < 5) {
                     playerHP -= 1;
@@ -380,18 +593,17 @@
                         isGameOver = true;
                         gameOverEl.style.display = 'flex';
                         finalScoreEl.innerText = `Kills: ${score}`;
+                        if (myPlayerRef) myPlayerRef.remove();
                     }
                 }
             }
 
-            // --- 弾丸の更新と当たり判定 ---
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
                 b.position.add(b.userData.velocity.clone().multiplyScalar(delta));
 
                 let hit = false;
                 
-                // 敵との判定
                 for (let j = enemies.length - 1; j >= 0; j--) {
                     const enemy = enemies[j];
                     if (b.position.distanceTo(enemy.mesh.position) < 8) {
@@ -407,24 +619,17 @@
                 }
 
                 if (!hit) {
-                    // [変更点] 壁との判定と破壊ロジック
                     for (let k = walls.length - 1; k >= 0; k--) {
                         const w = walls[k];
-                        // 判定を少し甘めに設定 (半径12程度)
                         if (b.position.distanceTo(w.position) < 12) {
                             scene.remove(b);
                             bullets.splice(i, 1);
                             hit = true;
 
-                            // HPを減らす
                             w.userData.hp -= 1;
-                            
-                            // ダメージ演出（色を暗くする）
-                            const baseColor = 0x8B4513;
                             const darkenFactor = w.userData.hp / 3; 
                             w.material.color.setHSL(0.08, 0.74, 0.2 + (0.2 * darkenFactor));
 
-                            // HPが0以下なら破壊
                             if (w.userData.hp <= 0) {
                                 scene.remove(w);
                                 walls.splice(k, 1);
@@ -442,8 +647,6 @@
 
             renderer.render(scene, camera);
         }
-
-        animate();
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
