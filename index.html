@@ -129,6 +129,14 @@
             color: transparent;
             box-shadow: 0 4px 8px rgba(0,0,0,0.3);
         }
+        .card:not(.flipped):not(.matched):hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+        }
+        .card.disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
         .card::before {
             content: '?';
             position: absolute;
@@ -307,6 +315,7 @@
         let playerNames = [];
         let scores = {};
         let moveListener = null;
+        let myTurnIndex = -1; // 自分のターン番号
 
         function initMemoryLobby() {
             document.getElementById('lobby-screen').classList.remove('hidden');
@@ -438,7 +447,12 @@
             isProcessing = false;
             
             // プレイヤー名リストを作成
-            playerNames = Object.values(roomData.players).map(p => p.name);
+            const playerEntries = Object.entries(roomData.players);
+            playerNames = playerEntries.map(([id, p]) => p.name);
+            
+            // 自分が何番目のプレイヤーかを記録
+            myTurnIndex = playerEntries.findIndex(([id, p]) => id === myPlayerId);
+            
             scores = roomData.scores || {};
             playerNames.forEach(name => {
                 if (!scores[name]) scores[name] = 0;
@@ -507,6 +521,16 @@
             db.ref(`memory_rooms/${currentRoomId}/turnIndex`).on('value', snap => {
                 const turn = snap.val() || 0;
                 updateStatus(turn);
+                
+                // カードの有効/無効を切り替え
+                const isMyTurn = (turn % playerNames.length) === myTurnIndex;
+                document.querySelectorAll('.card:not(.matched)').forEach(card => {
+                    if (isMyTurn) {
+                        card.classList.remove('disabled');
+                    } else {
+                        card.classList.add('disabled');
+                    }
+                });
             });
         }
 
@@ -520,7 +544,11 @@
                 scoreText += `${name}: ${scores[name]} | `;
             }
             
-            statusEl.innerHTML = `Turn: <strong>${currentPlayer}</strong><br>${scoreText}`;
+            const isMyTurn = (turnIdx % playerNames.length) === myTurnIndex;
+            const turnIndicator = isMyTurn ? '👉 YOUR TURN! 👈' : '⏳ Waiting...';
+            
+            statusEl.innerHTML = `${turnIndicator}<br>Turn: <strong>${currentPlayer}</strong><br>${scoreText}`;
+            statusEl.style.color = isMyTurn ? '#4caf50' : '#ffffff';
         }
 
         function checkMatch() {
@@ -575,6 +603,13 @@
         }
 
         function flipCard(idx, num) {
+            // 自分のターンかチェック
+            const isMyTurn = (currentTurnIndex % playerNames.length) === myTurnIndex;
+            if (!isMyTurn) {
+                // 自分のターンでない場合は何もしない
+                return;
+            }
+            
             // 処理中または既にめくられている場合は無視
             if (isProcessing) return;
             
