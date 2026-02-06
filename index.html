@@ -116,33 +116,44 @@
         #waiting-players { display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; margin: 20px; }
         .player-card { background: #333; padding: 15px; border-radius: 5px; border: 1px solid #4caf50; min-width: 80px; text-align: center;}
         
-        /* 神経衰弱ゲーム盤 (バグ修正版) */
+        /* 神経衰弱ゲーム盤 (修正版) */
         #memory-game-board {
             display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 20px;
         }
         .card {
-            width: 60px; height: 80px; background: #1e88e5; border-radius: 5px;
+            width: 60px; height: 80px; background: #1e88e5; border-radius: 8px;
             display: flex; justify-content: center; align-items: center;
-            font-size: 24px; font-weight: bold; cursor: pointer; color: transparent;
-            transition: transform 0.3s;
+            font-size: 32px; font-weight: bold; cursor: pointer;
+            transition: all 0.3s ease;
             position: relative;
+            color: transparent;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
         }
-        /* 数字が入るspanタグ用: 親が回転しても数字は正面を向くように逆回転させる */
-        .card span {
-            display: none; /* 通常は非表示 */
-            transform: rotateY(180deg); /* 鏡文字対策 */
+        .card::before {
+            content: '?';
+            position: absolute;
+            color: white;
+            font-size: 40px;
         }
-        .card.flipped { 
+        .card.flipped, .card.matched { 
             background: #fff; 
-            color: #000; 
-            transform: rotateY(180deg); /* カード自体をくるっと回す */
+            color: #000;
         }
-        .card.flipped span {
-            display: block; /* めくったら表示 */
+        .card.flipped::before, .card.matched::before {
+            content: '';
         }
-        .card.matched { background: #4caf50; color: #fff; opacity: 0.5; pointer-events: none; transform: rotateY(180deg); }
-        .card.matched span { display: block; }
-
+        .card.matched { 
+            background: #4caf50; 
+            color: #fff; 
+            opacity: 0.6; 
+            pointer-events: none;
+        }
+        #memory-status {
+            background: rgba(0,0,0,0.7);
+            padding: 10px 20px;
+            border-radius: 5px;
+            margin: 10px;
+        }
     </style>
 </head>
 <body>
@@ -195,8 +206,8 @@
         <div style="position:absolute; top:20px; left:20px;">
             <button class="menu-btn btn-red" style="padding:5px 15px; font-size:14px;" onclick="leaveRoom()">Exit</button>
         </div>
-        <h2>Memory Game</h2>
-        <h3 id="memory-status">Turn: Player 1</h3>
+        <h2>🃏 Memory Game</h2>
+        <h3 id="memory-status">Waiting...</h3>
         <div id="memory-game-board"></div>
     </div>
 
@@ -285,11 +296,17 @@
         }
 
         /* =========================================
-           ここから「神経衰弱 (Memory Game)」修正版
+           神経衰弱 (Memory Game) - 完全修正版
            ========================================= */
         let currentRoomId = null;
         let isHost = false;
-        let isProcessing = false; // ★連打防止用のフラグ
+        let isProcessing = false;
+        let gameBoard = [];
+        let flippedCards = [];
+        let currentTurnIndex = 0;
+        let playerNames = [];
+        let scores = {};
+        let moveListener = null;
 
         function initMemoryLobby() {
             document.getElementById('lobby-screen').classList.remove('hidden');
@@ -329,7 +346,10 @@
             isHost = true;
 
             newRef.set({
-                name: rName, max: rMax, host: username, status: 'waiting',
+                name: rName, 
+                max: rMax, 
+                host: username, 
+                status: 'waiting',
                 players: { [myPlayerId]: { name: username } }
             }).then(() => {
                 document.getElementById('create-room-screen').classList.add('hidden');
@@ -381,17 +401,28 @@
             const cards = [1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8]
                 .sort(() => Math.random() - 0.5);
             
+            // 古いmovesをクリア & 新しいゲーム開始
             db.ref(`memory_rooms/${currentRoomId}`).update({
                 status: 'playing',
                 board: cards,
-                turnIndex: 0
+                turnIndex: 0,
+                moves: null, // 重要: 古い履歴を削除
+                scores: {}
             });
         };
 
         window.leaveRoom = function() {
             if (currentRoomId) {
-                if(isHost) db.ref(`memory_rooms/${currentRoomId}`).remove();
-                else db.ref(`memory_rooms/${currentRoomId}/players/${myPlayerId}`).remove();
+                // リスナーを解除
+                if (moveListener) {
+                    db.ref(`memory_rooms/${currentRoomId}/moves`).off('child_added', moveListener);
+                }
+                
+                if(isHost) {
+                    db.ref(`memory_rooms/${currentRoomId}`).remove();
+                } else {
+                    db.ref(`memory_rooms/${currentRoomId}/players/${myPlayerId}`).remove();
+                }
             }
             location.reload();
         };
@@ -402,64 +433,170 @@
             const board = document.getElementById('memory-game-board');
             board.innerHTML = '';
 
-            roomData.board.forEach((num, idx) => {
+            gameBoard = roomData.board;
+            flippedCards = [];
+            isProcessing = false;
+            
+            // プレイヤー名リストを作成
+            playerNames = Object.values(roomData.players).map(p => p.name);
+            scores = roomData.scores || {};
+            playerNames.forEach(name => {
+                if (!scores[name]) scores[name] = 0;
+            });
+
+            // カード生成
+            gameBoard.forEach((num, idx) => {
                 const card = document.createElement('div');
                 card.className = 'card';
-                // ★修正: 数字をspanで囲む（CSSで逆回転させて鏡文字防止）
-                card.innerHTML = `<span>${num}</span>`; 
+                card.textContent = num;
                 card.onclick = () => flipCard(idx, num);
                 card.id = `card-${idx}`;
                 board.appendChild(card);
             });
 
-            // めくり同期監視
-            // child_added は過去の履歴も全て取得するので、ゲーム開始直後の同期もこれでOK
-            db.ref(`memory_rooms/${currentRoomId}/moves`).on('child_added', snap => {
+            updateStatus(roomData.turnIndex || 0);
+
+            // 既存のリスナーを削除してから新しいリスナーを設定
+            if (moveListener) {
+                db.ref(`memory_rooms/${currentRoomId}/moves`).off('child_added', moveListener);
+            }
+
+            // movesを監視（新規追加分のみ）
+            let isFirstLoad = true;
+            moveListener = db.ref(`memory_rooms/${currentRoomId}/moves`).on('child_added', snap => {
+                // 初回読み込み時は既存の履歴をスキップ
+                if (isFirstLoad) {
+                    isFirstLoad = false;
+                    // 既に2枚めくられている状態かチェック
+                    const allMoves = [];
+                    db.ref(`memory_rooms/${currentRoomId}/moves`).once('value', s => {
+                        s.forEach(child => allMoves.push(child.val()));
+                        
+                        // 既存の履歴を反映
+                        allMoves.forEach(m => {
+                            const el = document.getElementById(`card-${m.index}`);
+                            if (el && !el.classList.contains('matched')) {
+                                el.classList.add('flipped');
+                            }
+                        });
+                        
+                        // 2枚開いている場合は判定
+                        const flipped = document.querySelectorAll('.card.flipped:not(.matched)');
+                        if (flipped.length === 2) {
+                            checkMatch();
+                        }
+                    });
+                    return;
+                }
+
+                // 新しいmoveを処理
                 const m = snap.val();
                 const el = document.getElementById(`card-${m.index}`);
-                if (el) el.classList.add('flipped');
-                
-                // 現在めくられている（まだマッチ確定していない）カードを探す
-                const flipped = document.querySelectorAll('.card.flipped:not(.matched)');
+                if (el && !el.classList.contains('matched')) {
+                    el.classList.add('flipped');
+                }
                 
                 // 2枚めくられたら判定
+                const flipped = document.querySelectorAll('.card.flipped:not(.matched)');
                 if (flipped.length === 2) {
-                    isProcessing = true; // ★ロック開始（誰も触れない）
-                    
-                    setTimeout(() => {
-                        // 文字列として比較（念のため）
-                        if (flipped[0].innerText === flipped[1].innerText) {
-                            flipped[0].classList.add('matched');
-                            flipped[1].classList.add('matched');
-                        } else {
-                            flipped[0].classList.remove('flipped');
-                            flipped[1].classList.remove('flipped');
-                        }
-                        isProcessing = false; // ★ロック解除
-                    }, 1000); // 1秒待機
+                    checkMatch();
                 }
+            });
+
+            // ターン監視
+            db.ref(`memory_rooms/${currentRoomId}/turnIndex`).on('value', snap => {
+                const turn = snap.val() || 0;
+                updateStatus(turn);
             });
         }
 
+        function updateStatus(turnIdx) {
+            currentTurnIndex = turnIdx;
+            const currentPlayer = playerNames[turnIdx % playerNames.length];
+            const statusEl = document.getElementById('memory-status');
+            
+            let scoreText = '';
+            for (let name in scores) {
+                scoreText += `${name}: ${scores[name]} | `;
+            }
+            
+            statusEl.innerHTML = `Turn: <strong>${currentPlayer}</strong><br>${scoreText}`;
+        }
+
+        function checkMatch() {
+            if (isProcessing) return;
+            isProcessing = true;
+
+            const flipped = document.querySelectorAll('.card.flipped:not(.matched)');
+            
+            setTimeout(() => {
+                if (flipped[0].textContent === flipped[1].textContent) {
+                    // マッチ成功
+                    flipped[0].classList.add('matched');
+                    flipped[1].classList.add('matched');
+                    
+                    // スコア加算
+                    const currentPlayer = playerNames[currentTurnIndex % playerNames.length];
+                    scores[currentPlayer] = (scores[currentPlayer] || 0) + 1;
+                    
+                    // スコアを更新
+                    db.ref(`memory_rooms/${currentRoomId}/scores`).set(scores);
+                    
+                    // 全てマッチしたかチェック
+                    const allMatched = document.querySelectorAll('.card.matched').length === 16;
+                    if (allMatched) {
+                        setTimeout(() => {
+                            let winner = '';
+                            let maxScore = 0;
+                            for (let name in scores) {
+                                if (scores[name] > maxScore) {
+                                    maxScore = scores[name];
+                                    winner = name;
+                                }
+                            }
+                            alert(`🎉 Game Over! Winner: ${winner} (${maxScore} pairs)`);
+                            leaveRoom();
+                        }, 500);
+                    }
+                } else {
+                    // マッチ失敗
+                    flipped[0].classList.remove('flipped');
+                    flipped[1].classList.remove('flipped');
+                    
+                    // ターン交代
+                    const nextTurn = currentTurnIndex + 1;
+                    db.ref(`memory_rooms/${currentRoomId}/turnIndex`).set(nextTurn);
+                }
+                
+                // movesをクリア（次のターン用）
+                db.ref(`memory_rooms/${currentRoomId}/moves`).remove();
+                isProcessing = false;
+            }, 1000);
+        }
+
         function flipCard(idx, num) {
-            // ★バグ対策: 処理中、または既にめくられている、または既に2枚開いている場合は無視
+            // 処理中または既にめくられている場合は無視
             if (isProcessing) return;
             
             const el = document.getElementById(`card-${idx}`);
             if (el.classList.contains('flipped') || el.classList.contains('matched')) return;
             
-            // ★バグ対策: 画面上で既に2枚開いていたら、通信する前に止める（連打防止）
+            // 既に2枚開いている場合は無視
             const openCards = document.querySelectorAll('.card.flipped:not(.matched)');
             if (openCards.length >= 2) return;
 
             // サーバーに送信
-            db.ref(`memory_rooms/${currentRoomId}/moves`).push({ index: idx, val: num });
+            db.ref(`memory_rooms/${currentRoomId}/moves`).push({ 
+                index: idx, 
+                val: num,
+                timestamp: Date.now()
+            });
         }
 
 
         /* =========================================
-           ここから「バトルロワイヤル (Battle Royale)」
-           (機能変更なし)
+           バトルロワイヤル (Battle Royale)
+           (変更なし)
            ========================================= */
         function startBattleRoyale() {
             document.getElementById('ui-layer').style.display = 'block'; 
