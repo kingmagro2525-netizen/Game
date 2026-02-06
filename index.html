@@ -46,6 +46,75 @@
             pointer-events: none;
         }
 
+        /* ユーザー名入力画面 */
+        #username-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column; justify-content: center; align-items: center;
+            color: white; z-index: 30; pointer-events: auto;
+        }
+        #username-screen h1 { margin-bottom: 40px; font-size: 32px; }
+        #username-screen input {
+            padding: 15px; font-size: 18px; margin: 20px;
+            width: 300px; max-width: 80%;
+            border: 2px solid #4caf50;
+            border-radius: 5px;
+            text-align: center;
+        }
+        #username-screen button {
+            padding: 15px 50px; font-size: 22px; margin-top: 10px;
+            background: #4caf50; color: white; border: none; border-radius: 5px;
+            cursor: pointer;
+        }
+        #username-screen button:hover { background: #45a049; }
+
+        /* チャット */
+        #chat-container {
+            position: absolute; bottom: 200px; left: 20px;
+            width: 300px; max-width: 40%;
+            pointer-events: auto;
+        }
+        #chat-messages {
+            background: rgba(0,0,0,0.6);
+            padding: 10px;
+            border-radius: 5px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: white;
+        }
+        .chat-message {
+            margin: 5px 0;
+            word-wrap: break-word;
+        }
+        .chat-username {
+            color: #4caf50;
+            font-weight: bold;
+        }
+        #chat-input-container {
+            display: flex;
+            gap: 5px;
+        }
+        #chat-input {
+            flex: 1;
+            padding: 10px;
+            font-size: 14px;
+            border: 2px solid #4caf50;
+            border-radius: 5px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+        }
+        #chat-send {
+            padding: 10px 20px;
+            background: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
         /* ゲームオーバー画面 */
         #game-over {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -76,22 +145,30 @@
         #btn-jump  { width: 60px; height: 60px; bottom: 30px; right: 120px; }
         #btn-build { width: 60px; height: 60px; bottom: 160px; right: 50px; background: rgba(139, 69, 19, 0.6); }
 
-        /* ジョイスティックガイド */
+        /* ジョイスティックガイド - Robloxサイズ */
         #stick-zone {
-            position: absolute; bottom: 50px; left: 50px;
-            width: 100px; height: 100px;
-            border: 2px dashed rgba(255,255,255,0.2); border-radius: 50%;
-            pointer-events: none; opacity: 0.3; transition: opacity 0.2s;
+            position: absolute; bottom: 30px; left: 30px;
+            width: 150px; height: 150px;
+            border: 3px dashed rgba(255,255,255,0.3); border-radius: 50%;
+            pointer-events: none; opacity: 0.4; transition: opacity 0.2s;
         }
         #stick-knob {
             position: absolute; top: 50%; left: 50%;
-            width: 40px; height: 40px;
-            background: rgba(255,255,255,0.5); border-radius: 50%;
+            width: 60px; height: 60px;
+            background: rgba(255,255,255,0.6); border-radius: 50%;
             transform: translate(-50%, -50%);
+            border: 3px solid rgba(255,255,255,0.8);
         }
     </style>
 </head>
 <body>
+
+    <!-- ユーザー名入力画面 -->
+    <div id="username-screen">
+        <h1>🎮 Enter Your Name</h1>
+        <input type="text" id="username-input" placeholder="Your Username" maxlength="12" />
+        <button id="username-btn">START</button>
+    </div>
 
     <div id="game-over">
         <h1>YOU DIED</h1>
@@ -107,6 +184,16 @@
         </div>
         <div id="connection-status">🔴 Connecting...</div>
         <div id="crosshair"></div>
+        
+        <!-- チャット -->
+        <div id="chat-container">
+            <div id="chat-messages"></div>
+            <div id="chat-input-container">
+                <input type="text" id="chat-input" placeholder="Type message..." maxlength="100" />
+                <button id="chat-send">Send</button>
+            </div>
+        </div>
+        
         <div id="stick-zone"><div id="stick-knob"></div></div>
         <div id="btn-shoot" class="control-btn">FIRE</div>
         <div id="btn-jump" class="control-btn">JUMP</div>
@@ -129,16 +216,24 @@
         import * as THREE from 'three';
 
         // --- UI要素 ---
+        const usernameScreen = document.getElementById('username-screen');
+        const usernameInput = document.getElementById('username-input');
+        const usernameBtn = document.getElementById('username-btn');
         const connectionStatus = document.getElementById('connection-status');
         const hpEl = document.getElementById('hp-bar');
         const scoreEl = document.getElementById('score-bar');
         const playersEl = document.getElementById('players-bar');
         const gameOverEl = document.getElementById('game-over');
         const finalScoreEl = document.getElementById('final-score');
+        const chatMessages = document.getElementById('chat-messages');
+        const chatInput = document.getElementById('chat-input');
+        const chatSend = document.getElementById('chat-send');
 
         let db = null;
         let playerId = null;
         let myPlayerRef = null;
+        let username = '';
+        let gameStarted = false;
 
         // --- ゲーム状態管理 ---
         let isGameOver = false;
@@ -169,10 +264,27 @@
         dirLight.position.set(50, 100, 50);
         scene.add(dirLight);
 
-        // 地面
-        const floorGeo = new THREE.PlaneGeometry(2000, 2000);
+        // 3D地形 (ぐにゃぐにゃ)
+        const floorGeo = new THREE.PlaneGeometry(2000, 2000, 100, 100);
         floorGeo.rotateX(-Math.PI / 2);
-        const floorMat = new THREE.MeshBasicMaterial({ color: 0x4caf50 });
+        
+        // 頂点を上下に動かして地形を作る
+        const positions = floorGeo.attributes.position;
+        for (let i = 0; i < positions.count; i++) {
+            const x = positions.getX(i);
+            const z = positions.getZ(i);
+            // パーリンノイズ風の高さ計算
+            const height = Math.sin(x * 0.01) * 5 + Math.cos(z * 0.01) * 5 + 
+                          Math.sin(x * 0.02 + z * 0.02) * 3 +
+                          Math.random() * 2;
+            positions.setY(i, height);
+        }
+        floorGeo.computeVertexNormals();
+        
+        const floorMat = new THREE.MeshLambertMaterial({ 
+            color: 0x4caf50,
+            flatShading: true
+        });
         const floor = new THREE.Mesh(floorGeo, floorMat);
         scene.add(floor);
 
@@ -183,32 +295,55 @@
             velocity: new THREE.Vector3(),
             canJump: false
         };
-        camera.position.set(0, player.height, 0);
+        camera.position.set(0, player.height + 20, 0);
 
-        // --- Firebase自動初期化 ---
-        const apiKey = "AIzaSyBIB7NiNQBbrxNc0dsKtHmdGbieHrI26dk";
-        const projectId = "online-game-f5701";
-        const databaseURL = `https://${projectId}-default-rtdb.asia-southeast1.firebasedatabase.app`;
+        // --- ユーザー名入力 ---
+        usernameBtn.addEventListener('click', startGame);
+        usernameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') startGame();
+        });
 
-        try {
-            const firebaseConfig = {
-                apiKey: apiKey,
-                databaseURL: databaseURL
-            };
+        function startGame() {
+            username = usernameInput.value.trim();
+            if (!username) {
+                alert('ユーザー名を入力してください');
+                return;
+            }
+            
+            usernameScreen.style.display = 'none';
+            gameStarted = true;
+            
+            initializeFirebase();
+            animate();
+        }
 
-            firebase.initializeApp(firebaseConfig);
-            db = firebase.database();
-            playerId = 'player_' + Math.random().toString(36).substr(2, 9);
-            
-            initializeMultiplayer();
-            
-            connectionStatus.innerText = '🟢 Connected';
-            connectionStatus.style.color = '#00ff00';
-            
-        } catch (error) {
-            connectionStatus.innerText = '🔴 Connection Error';
-            connectionStatus.style.color = '#ff0000';
-            console.error('Firebase Error:', error);
+        // --- Firebase初期化 ---
+        function initializeFirebase() {
+            const apiKey = "AIzaSyBIB7NiNQBbrxNc0dsKtHmdGbieHrI26dk";
+            const projectId = "online-game-f5701";
+            const databaseURL = `https://${projectId}-default-rtdb.asia-southeast1.firebasedatabase.app`;
+
+            try {
+                const firebaseConfig = {
+                    apiKey: apiKey,
+                    databaseURL: databaseURL
+                };
+
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.database();
+                playerId = 'player_' + Math.random().toString(36).substr(2, 9);
+                
+                initializeMultiplayer();
+                initializeChat();
+                
+                connectionStatus.innerText = '🟢 Connected';
+                connectionStatus.style.color = '#00ff00';
+                
+            } catch (error) {
+                connectionStatus.innerText = '🔴 Connection Error';
+                connectionStatus.style.color = '#ff0000';
+                console.error('Firebase Error:', error);
+            }
         }
 
         // --- マルチプレイヤー初期化 ---
@@ -223,6 +358,7 @@
                         z: camera.position.z,
                         rotY: camera.rotation.y,
                         hp: playerHP,
+                        username: username,
                         timestamp: Date.now()
                     });
                 }
@@ -251,11 +387,32 @@
                             });
                             const playerMesh = new THREE.Mesh(playerGeo, playerMat);
                             
-                            const nameGeo = new THREE.BoxGeometry(8, 2, 0.5);
-                            const nameMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-                            const nameTag = new THREE.Mesh(nameGeo, nameMat);
+                            // ユーザー名表示用のキャンバステクスチャ
+                            const canvas = document.createElement('canvas');
+                            canvas.width = 256;
+                            canvas.height = 64;
+                            const ctx = canvas.getContext('2d');
+                            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                            ctx.fillRect(0, 0, 256, 64);
+                            ctx.fillStyle = 'white';
+                            ctx.font = 'bold 32px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.fillText(playerData.username || 'Player', 128, 42);
+                            
+                            const texture = new THREE.CanvasTexture(canvas);
+                            const nameMat = new THREE.MeshBasicMaterial({ 
+                                map: texture, 
+                                transparent: true 
+                            });
+                            const nameTag = new THREE.Mesh(
+                                new THREE.PlaneGeometry(12, 3),
+                                nameMat
+                            );
                             nameTag.position.y = 12;
                             playerMesh.add(nameTag);
+                            
+                            // ビルボード効果（常にカメラを向く）
+                            playerMesh.userData.nameTag = nameTag;
                             
                             scene.add(playerMesh);
                             otherPlayers[id] = playerMesh;
@@ -267,6 +424,11 @@
                             0.3
                         );
                         mesh.rotation.y = playerData.rotY;
+                        
+                        // 名前タグを常にカメラ方向に向ける
+                        if (mesh.userData.nameTag) {
+                            mesh.userData.nameTag.lookAt(camera.position);
+                        }
                     }
                 }
                 
@@ -300,12 +462,63 @@
             }, 30000);
         }
 
+        // --- チャットシステム ---
+        function initializeChat() {
+            // チャット送信
+            function sendMessage() {
+                const message = chatInput.value.trim();
+                if (!message) return;
+                
+                db.ref('chat').push({
+                    username: username,
+                    message: message,
+                    timestamp: Date.now()
+                });
+                
+                chatInput.value = '';
+            }
+            
+            chatSend.addEventListener('click', sendMessage);
+            chatInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') sendMessage();
+            });
+            
+            // チャット受信
+            db.ref('chat').limitToLast(20).on('child_added', (snapshot) => {
+                const data = snapshot.val();
+                const messageEl = document.createElement('div');
+                messageEl.className = 'chat-message';
+                messageEl.innerHTML = `<span class="chat-username">${data.username}:</span> ${data.message}`;
+                chatMessages.appendChild(messageEl);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+                
+                // 古いメッセージを削除
+                if (chatMessages.children.length > 20) {
+                    chatMessages.removeChild(chatMessages.firstChild);
+                }
+            });
+            
+            // 古いチャットを定期削除（5分以上前）
+            setInterval(() => {
+                db.ref('chat').once('value', (snapshot) => {
+                    const messages = snapshot.val();
+                    if (messages) {
+                        for (let id in messages) {
+                            if (Date.now() - messages[id].timestamp > 300000) {
+                                db.ref('chat/' + id).remove();
+                            }
+                        }
+                    }
+                });
+            }, 60000);
+        }
+
         // --- 3. 敵 (Enemy) システム ---
         const enemyGeo = new THREE.BoxGeometry(10, 20, 10);
         const enemyMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
 
         function spawnEnemy() {
-            if (isGameOver) return;
+            if (isGameOver || !gameStarted) return;
             if (enemies.length >= 10) return;
 
             const enemy = new THREE.Mesh(enemyGeo, enemyMat);
@@ -323,22 +536,23 @@
 
         setInterval(spawnEnemy, 2000);
 
-        // --- 4. タッチ操作ロジック ---
+        // --- 4. タッチ操作ロジック (Robloxサイズ) ---
         const input = { moveX: 0, moveY: 0, touches: {} };
         const stickZone = document.getElementById('stick-zone');
         const stickKnob = document.getElementById('stick-knob');
-        const halfWidth = window.innerWidth / 2;
+        const joystickSize = 200; // Robloxサイズ
 
         document.addEventListener('touchstart', (e) => {
-            if(isGameOver) return;
+            if(isGameOver || !gameStarted) return;
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
-                if (t.clientX < halfWidth) {
+                // 左半分の大きな範囲でジョイスティック
+                if (t.clientX < window.innerWidth / 2) {
                     input.touches[t.identifier] = { type: 'move', startX: t.clientX, startY: t.clientY };
-                    stickZone.style.left = (t.clientX - 50) + 'px';
-                    stickZone.style.top = (t.clientY - 50) + 'px';
-                    stickZone.style.opacity = '1';
+                    stickZone.style.left = (t.clientX - 75) + 'px';
+                    stickZone.style.top = (t.clientY - 75) + 'px';
+                    stickZone.style.opacity = '0.8';
                 } else {
                     input.touches[t.identifier] = { type: 'look', lastX: t.clientX, lastY: t.clientY };
                 }
@@ -346,7 +560,7 @@
         }, { passive: false });
 
         document.addEventListener('touchmove', (e) => {
-            if(isGameOver) return;
+            if(isGameOver || !gameStarted) return;
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
@@ -354,10 +568,10 @@
                 if (data && data.type === 'move') {
                     const deltaX = t.clientX - data.startX;
                     const deltaY = t.clientY - data.startY;
-                    const maxDist = 50;
+                    const maxDist = 75; // Roblox風の大きな範囲
                     input.moveX = Math.max(-1, Math.min(1, deltaX / maxDist));
                     input.moveY = Math.max(-1, Math.min(1, -deltaY / maxDist));
-                    stickKnob.style.transform = `translate(calc(-50% + ${input.moveX * 25}px), calc(-50% + ${-input.moveY * 25}px))`;
+                    stickKnob.style.transform = `translate(calc(-50% + ${input.moveX * 40}px), calc(-50% + ${-input.moveY * 40}px))`;
                 } else if (data && data.type === 'look') {
                     const sensitivity = 0.005;
                     camera.rotation.y -= (t.clientX - data.lastX) * sensitivity;
@@ -375,7 +589,7 @@
                 if (input.touches[t.identifier]?.type === 'move') {
                     input.moveX = 0; input.moveY = 0;
                     stickKnob.style.transform = `translate(-50%, -50%)`;
-                    stickZone.style.opacity = '0.3';
+                    stickZone.style.opacity = '0.4';
                 }
                 delete input.touches[t.identifier];
             }
@@ -439,7 +653,7 @@
         const checkEnemyBox = new THREE.Box3();
 
         function animate() {
-            if (isGameOver) return;
+            if (isGameOver || !gameStarted) return;
             requestAnimationFrame(animate);
 
             const time = performance.now();
@@ -461,8 +675,8 @@
             camera.position.z += player.velocity.z * delta;
             camera.position.y += player.velocity.y * delta;
 
-            if (camera.position.y < player.height) {
-                camera.position.y = player.height;
+            if (camera.position.y < player.height + 20) {
+                camera.position.y = player.height + 20;
                 player.velocity.y = 0;
                 player.canJump = true;
             }
@@ -561,8 +775,6 @@
 
             renderer.render(scene, camera);
         }
-
-        animate();
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
