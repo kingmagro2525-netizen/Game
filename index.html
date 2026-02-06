@@ -54,7 +54,7 @@
             flex-direction: column; justify-content: center; align-items: center;
             color: white; z-index: 30; pointer-events: auto;
         }
-        #setup-screen h1 { margin-bottom: 30px; font-size: 28px; }
+        #setup-screen h1 { margin-bottom: 40px; font-size: 32px; }
         #setup-screen input {
             padding: 15px; font-size: 16px; margin: 10px;
             width: 350px; max-width: 80%;
@@ -62,26 +62,11 @@
             border-radius: 5px;
         }
         #setup-screen button {
-            padding: 15px 40px; font-size: 20px; margin: 20px 10px;
+            padding: 15px 50px; font-size: 22px; margin-top: 30px;
             background: #4caf50; color: white; border: none; border-radius: 5px;
             cursor: pointer;
         }
         #setup-screen button:hover { background: #45a049; }
-        .setup-info {
-            font-size: 13px; color: #aaa; margin-top: 20px; max-width: 450px;
-            text-align: center; padding: 0 20px; line-height: 1.6;
-        }
-        .step {
-            background: rgba(76, 175, 80, 0.1);
-            padding: 15px;
-            margin: 10px 0;
-            border-left: 3px solid #4caf50;
-            text-align: left;
-            max-width: 450px;
-        }
-        .step strong { color: #4caf50; }
-        a { color: #4caf50; text-decoration: none; }
-        a:hover { text-decoration: underline; }
 
         /* ゲームオーバー画面 */
         #game-over {
@@ -132,32 +117,12 @@
 
     <!-- 初期設定画面 -->
     <div id="setup-screen">
-        <h1>🎮 Fortnite Mobile Multiplayer</h1>
-        
-        <div class="step">
-            <strong>ステップ1:</strong> Firebase Consoleを開く<br>
-            <a href="https://console.firebase.google.com/" target="_blank">https://console.firebase.google.com/</a>
-        </div>
-        
-        <div class="step">
-            <strong>ステップ2:</strong> 左メニューから「Realtime Database」をクリック<br>
-            → 「データベースを作成」→「テストモードで開始」
-        </div>
-        
-        <div class="step">
-            <strong>ステップ3:</strong> 以下の情報をコピペ
-        </div>
-        
+        <h1>🎮 MULTIPLAYER</h1>
         <div>
-            <input type="text" id="firebase-key" placeholder="API Key (AIzaSy...)" value="AIzaSyBIB7NiNQBbrxNc0dsKtHmdGbieHrI26dk" />
-            <input type="text" id="project-id" placeholder="Project ID (例: online-game-f5701)" value="online-game-f5701" />
+            <input type="text" id="firebase-key" placeholder="API Key" value="AIzaSyBIB7NiNQBbrxNc0dsKtHmdGbieHrI26dk" />
+            <input type="text" id="project-id" placeholder="Project ID" value="online-game-f5701" />
         </div>
-        <button id="start-btn">🚀 START GAME</button>
-        
-        <div class="setup-info">
-            <p><strong>Project ID</strong>は Firebase Console のプロジェクト名の下に表示されています</p>
-            <p><strong>API Key</strong>は設定 → アプリ設定から確認できます</p>
-        </div>
+        <button id="start-btn">START GAME</button>
     </div>
 
     <div id="game-over">
@@ -267,8 +232,7 @@
                 return;
             }
 
-            // databaseURLを自動生成
-            const databaseURL = `https://${projectId}-default-rtdb.firebaseio.com`;
+            const databaseURL = `https://${projectId}-default-rtdb.asia-southeast1.firebasedatabase.app`;
 
             try {
                 const firebaseConfig = {
@@ -290,7 +254,7 @@
                 connectionStatus.style.color = '#00ff00';
                 
             } catch (error) {
-                alert('Firebase接続エラー:\n\n' + error.message + '\n\nRealtime Databaseを有効にしましたか？');
+                alert('Firebase接続エラー:\n\n' + error.message);
                 console.error(error);
             }
         });
@@ -299,7 +263,6 @@
         function initializeMultiplayer() {
             myPlayerRef = db.ref('players/' + playerId);
             
-            // 自分の位置を定期送信
             setInterval(() => {
                 if (!isGameOver && gameStarted) {
                     myPlayerRef.set({
@@ -313,7 +276,6 @@
                 }
             }, 100);
 
-            // 他プレイヤーの情報を受信
             db.ref('players').on('value', (snapshot) => {
                 const players = snapshot.val();
                 const currentPlayerIds = new Set();
