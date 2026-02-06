@@ -554,6 +554,8 @@
 
         document.addEventListener('touchstart', (e) => {
             if(isGameOver || !gameStarted) return;
+            // ユーザー名入力画面やチャット入力は除外
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
@@ -571,6 +573,8 @@
 
         document.addEventListener('touchmove', (e) => {
             if(isGameOver || !gameStarted) return;
+            // チャット入力は除外
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
@@ -593,6 +597,7 @@
         }, { passive: false });
 
         document.addEventListener('touchend', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const t = e.changedTouches[i];
